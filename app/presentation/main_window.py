@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import Qt, QSettings
+from PyQt5.QtGui import QShowEvent
 from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -24,6 +25,7 @@ from app.presentation.pages.resources import ResourcesPage
 from app.presentation.pages.reviews import ReviewsPage
 from app.presentation.theme.palette import Palette
 from app.presentation.theme.stylesheet import build_stylesheet
+from app.presentation.theme.title_bar import apply_title_bar
 from app.presentation.widgets.common import GhostButton
 
 
@@ -137,6 +139,11 @@ class MainWindow(QMainWindow):
         palette = Palette.for_mode(self._theme)
         self.setStyleSheet(build_stylesheet(palette))
         self.theme_button.setText("Тема: светлая" if self._theme is ThemeMode.LIGHT else "Тема: тёмная")
+        apply_title_bar(self, self._theme, palette)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        apply_title_bar(self, self._theme, Palette.for_mode(self._theme))
 
     def _logout(self) -> None:
         self.container.session.clear()
