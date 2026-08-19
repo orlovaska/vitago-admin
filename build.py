@@ -2,58 +2,76 @@
 
 from __future__ import annotations
 
+import argparse
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
-from run import ROOT, ensure_deps, ensure_venv, python_bin
+from run import ROOT, ensure_venv, python_bin
 
 SPEC = ROOT / "vitago-admin.spec"
 BUILD_REQUIREMENTS = ROOT / "requirements-build.txt"
 DIST_DIR = ROOT / "dist"
 EXE_NAME = "VitagoAdmin.exe"
+EXE_PATH = DIST_DIR / "VitagoAdmin" / EXE_NAME
 
 
 def ensure_build_deps() -> None:
-    print("Проверяю зависимости сборки...")
-    subprocess.check_call(
-        [str(python_bin()), "-m", "pip", "install", "-r", str(BUILD_REQUIREMENTS)],
+    probe = subprocess.run(
+        [str(python_bin()), "-c", "import PyQt5, requests, dotenv, PyInstaller"],
         cwd=ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return
+    print("Ставлю зависимости сборки...")
+    env = os.environ.copy()
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    subprocess.check_call(
+        [str(python_bin()), "-m", "pip", "install", "-q", "-r", str(BUILD_REQUIREMENTS)],
+        cwd=ROOT,
+        env=env,
     )
 
 
-def build_exe() -> Path:
+def pyinstaller_args(clean: bool) -> list[str]:
+    args = [str(python_bin()), "-m", "PyInstaller", "--noconfirm", str(SPEC)]
+    if clean:
+        args.insert(-1, "--clean")
+    return args
+
+
+def build_exe(clean: bool) -> Path:
     print("Собираю exe...")
-    subprocess.check_call(
-        [
-            str(python_bin()),
-            "-m",
-            "PyInstaller",
-            "--noconfirm",
-            "--clean",
-            str(SPEC),
-        ],
-        cwd=ROOT,
-    )
-    exe_path = DIST_DIR / EXE_NAME
-    if not exe_path.exists():
-        raise SystemExit(f"Сборка завершилась, но файл не найден: {exe_path}")
+    subprocess.check_call(pyinstaller_args(clean), cwd=ROOT)
+    if not EXE_PATH.exists():
+        raise SystemExit(f"Сборка завершилась, но файл не найден: {EXE_PATH}")
     example = ROOT / ".env.example"
     if example.exists():
-        shutil.copy2(example, DIST_DIR / ".env.example")
-        shutil.copy2(example, DIST_DIR / ".env")
-    return exe_path
+        shutil.copy2(example, EXE_PATH.parent / ".env.example")
+        target_env = EXE_PATH.parent / ".env"
+        if not target_env.exists():
+            shutil.copy2(example, target_env)
+    return EXE_PATH
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Сборка Vitago Admin")
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Полная пересборка без кэша PyInstaller (медленнее)",
+    )
+    args = parser.parse_args()
     if not SPEC.exists():
         raise SystemExit(f"Не найден spec: {SPEC}")
     ensure_venv()
-    ensure_deps()
     ensure_build_deps()
-    exe_path = build_exe()
+    exe_path = build_exe(clean=args.clean)
     print(f"Готово: {exe_path}")
-    print("Готово: рядом с exe уже есть .env с API_BASE_URL.")
     return 0
 
 

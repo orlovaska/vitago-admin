@@ -22,6 +22,25 @@
         "focus": true
       },
       "problemMatcher": []
+    },
+    {
+      "label": "Сборка exe (чистая)",
+      "type": "shell",
+      "command": "python",
+      "args": ["${workspaceFolder}/build.py", "--clean"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUNBUFFERED": "1"
+        }
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true
+      },
+      "problemMatcher": []
     }
   ]
 }
