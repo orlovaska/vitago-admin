@@ -24,7 +24,7 @@ class LoginPage(BasePage):
         self.login_input.returnPressed.connect(self._login)
         self.notice = InlineNotice()
 
-        card = Card()
+        card = Card(object_name="loginCard")
         card.body.addWidget(PageHeader("Вход в систему", "Панель администратора Vitago"))
         card.body.addWidget(self.notice)
         card.body.addWidget(QLabel("Логин"))
@@ -32,7 +32,6 @@ class LoginPage(BasePage):
         card.body.addWidget(QLabel("Пароль"))
         card.body.addWidget(self.password_input)
         card.body.addWidget(self.submit)
-        card.setMaximumWidth(420)
 
         holder = QFrame()
         holder_layout = QVBoxLayout(holder)
@@ -55,7 +54,14 @@ class LoginPage(BasePage):
             self.notice.show_warning("Укажите логин и пароль")
             return
         self.submit.setEnabled(False)
-        self.tasks.submit(self.container.auth.login, self._on_success, self._on_error, login, password)
+        self.tasks.submit(
+            self.container.auth.login,
+            self._on_success,
+            self._on_error,
+            login,
+            password,
+            busy_text="Вход…",
+        )
 
     def _on_success(self, result: tuple[str, str]) -> None:
         token, login = result

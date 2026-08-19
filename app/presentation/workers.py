@@ -31,6 +31,8 @@ class TaskWorker(QObject):
 class TaskRunner(QObject):
     """Запускает блокирующие вызовы репозиториев вне UI-потока."""
 
+    busy_changed = pyqtSignal(bool, str)
+
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._jobs: list[tuple[QThread, TaskWorker]] = []
@@ -41,6 +43,7 @@ class TaskRunner(QObject):
         on_success: Callable[[Any], None],
         on_error: Callable[[str], None] | None = None,
         *args: Any,
+        busy_text: str = "Загрузка с сервера…",
         **kwargs: Any,
     ) -> None:
         thread = QThread(self)
@@ -54,9 +57,12 @@ class TaskRunner(QObject):
         worker.failed.connect(thread.quit)
         thread.finished.connect(lambda: self._cleanup(thread, worker))
         self._jobs.append((thread, worker))
+        self.busy_changed.emit(True, busy_text)
         thread.start()
 
     def _cleanup(self, thread: QThread, worker: TaskWorker) -> None:
         self._jobs = [job for job in self._jobs if job[0] is not thread]
         worker.deleteLater()
         thread.deleteLater()
+        if not self._jobs:
+            self.busy_changed.emit(False, "")

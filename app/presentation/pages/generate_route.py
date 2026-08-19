@@ -7,7 +7,6 @@ from typing import Any
 from PyQt5.QtWidgets import QFileDialog, QLabel, QPlainTextEdit
 
 from app.core.container import Container
-from app.domain.enums import PageId
 from app.presentation.navigation import NavigationMediator
 from app.presentation.pages.base import ScrollPage
 from app.presentation.widgets.common import Card, GhostButton, PageHeader, PrimaryButton, notify_error, notify_info
@@ -18,9 +17,6 @@ class GenerateRoutePage(ScrollPage):
     def __init__(self, container: Container, navigator: NavigationMediator, parent: QWidget | None = None) -> None:
         super().__init__(container, navigator, parent)
         self._points: list[dict[str, Any]] = []
-        back = GhostButton("← Назад")
-        back.clicked.connect(lambda: self.navigator.go(PageId.DASHBOARD))
-        self.content_layout.addWidget(back)
         self.content_layout.addWidget(
             PageHeader("Генерация маршрута", "Загрузите GeoJSON и преобразуйте его в JSON точек")
         )

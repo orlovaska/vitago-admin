@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.exceptions import ApiError
+from app.domain.enums import AppStore
 from app.domain.models import Application
 from app.infrastructure.repositories.base import BaseRepository
 
@@ -47,10 +48,24 @@ class ApplicationRepository(BaseRepository):
         if not payload.get("success"):
             raise ApiError(payload.get("message") or "Ошибка при удалении приложения")
 
-    def create_version(self, application_id: int, major: int, minor: int, patch: int, release_notes: str | None) -> None:
+    def create_version(
+        self,
+        application_id: int,
+        major: int,
+        minor: int,
+        patch: int,
+        release_notes: str | None,
+        store: AppStore,
+    ) -> None:
         payload = self._client.post(
             f"/admin/applications/{application_id}/versions",
-            json={"major": major, "minor": minor, "patch": patch, "releaseNotes": release_notes},
+            json={
+                "major": major,
+                "minor": minor,
+                "patch": patch,
+                "releaseNotes": release_notes,
+                "store": store.value,
+            },
         )
         if not payload.get("success"):
             raise ApiError(payload.get("message") or "Ошибка при создании версии")

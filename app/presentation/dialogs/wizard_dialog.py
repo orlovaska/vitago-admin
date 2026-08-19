@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app.core.container import Container
+from app.domain.enums import AppStore
 from app.domain.models import Resource
 from app.presentation.forms.application_form import ApplicationForm
 from app.presentation.forms.point_form import PointFormWidget
@@ -55,6 +56,7 @@ class CloneWizardDialog(QDialog):
         version_layout.addRow("Minor", self.minor)
         version_layout.addRow("Patch", self.patch)
         version_layout.addRow("Release Notes", self.release_notes)
+        version_layout.addRow("", QLabel("Создаётся по одной версии для Google Play, App Store и RuStore"))
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._wrap(self.app_form))
@@ -114,13 +116,16 @@ class CloneWizardDialog(QDialog):
                 if not self._app_id:
                     notify_error(self, "ID приложения не найден")
                     return
-                self._container.applications.create_version(
-                    self._app_id,
-                    self.major.value(),
-                    self.minor.value(),
-                    self.patch.value(),
-                    self.release_notes.text().strip() or None,
-                )
+                notes = self.release_notes.text().strip() or None
+                for store in AppStore:
+                    self._container.applications.create_version(
+                        self._app_id,
+                        self.major.value(),
+                        self.minor.value(),
+                        self.patch.value(),
+                        notes,
+                        store,
+                    )
                 notify_info(self, "Клон успешно создан")
                 self.accept()
                 return

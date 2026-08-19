@@ -14,6 +14,8 @@ from app.infrastructure.repositories.promocodes import PromocodeRepository
 from app.infrastructure.repositories.resources import ResourceRepository
 from app.infrastructure.repositories.reviews import ReviewRepository
 from app.infrastructure.repositories.routes import RouteRepository
+from app.infrastructure.repositories.secrets import SecretsRepository
+from app.infrastructure.repositories.server_resources import ServerResourcesRepository
 
 
 @dataclass
@@ -30,6 +32,8 @@ class Container:
     resources: ResourceRepository
     reviews: ReviewRepository
     promocodes: PromocodeRepository
+    secrets: SecretsRepository
+    server_resources: ServerResourcesRepository
 
     @classmethod
     def build(cls) -> Container:
@@ -47,6 +51,8 @@ class Container:
             resources=ResourceRepository(client),
             reviews=ReviewRepository(client),
             promocodes=PromocodeRepository(client),
+            secrets=SecretsRepository(settings),
+            server_resources=ServerResourcesRepository(settings),
         )
 
     def apply_env(self, values: dict[str, str]) -> Settings:
@@ -61,4 +67,6 @@ class Container:
         settings = Settings.load()
         self.settings = settings
         self.client.update_settings(settings)
+        self.secrets.update_settings(settings)
+        self.server_resources.update_settings(settings)
         return settings

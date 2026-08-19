@@ -55,6 +55,9 @@ def build_exe(clean: bool) -> Path:
         target_env = EXE_PATH.parent / ".env"
         if not target_env.exists():
             shutil.copy2(example, target_env)
+    ssh_dir = ROOT / ".ssh"
+    if ssh_dir.is_dir():
+        shutil.copytree(ssh_dir, EXE_PATH.parent / ".ssh", dirs_exist_ok=True)
     return EXE_PATH
 
 

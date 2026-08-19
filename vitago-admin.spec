@@ -7,7 +7,10 @@ a = Analysis(
     [str(ROOT / "main.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[(str(ROOT / ".env.example"), ".")],
+    datas=[
+        (str(ROOT / ".env.example"), "."),
+        (str(ROOT / "scripts"), "scripts"),
+    ],
     hiddenimports=["PyQt5.sip", "dotenv"],
     hookspath=[],
     hooksconfig={},

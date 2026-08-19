@@ -5,14 +5,13 @@ from pathlib import Path
 from typing import Any
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QWidget
+from PyQt5.QtWidgets import QCheckBox, QFileDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from PyQt5.QtGui import QGuiApplication
 
 from app.core.container import Container
-from app.domain.enums import PageId
+from app.domain.enums import AppStore, PageId
 from app.domain.models import Application, Resource
 from app.presentation.dialogs.point_dialog import PointDialog
-from app.presentation.dialogs.promocode_dialog import PromocodeDialog
 from app.presentation.dialogs.route_dialog import RouteDialog
 from app.presentation.dialogs.version_dialog import VersionDialog
 from app.presentation.forms.application_form import ApplicationForm
@@ -24,7 +23,7 @@ from app.presentation.widgets.common import (
     GhostButton,
     PageHeader,
     PrimaryButton,
-    StatusDot,
+    Switch,
     confirm,
     notify_error,
     notify_info,
@@ -38,6 +37,7 @@ class ApplicationPage(ScrollPage):
         self._app_id: int | None = None
         self._application: Application | None = None
         self._resources: list[Resource] = []
+        self._store_filter: set[AppStore] = set(AppStore)
 
         back = GhostButton("← Назад")
         back.clicked.connect(lambda: self.navigator.go(PageId.DASHBOARD))
@@ -47,6 +47,7 @@ class ApplicationPage(ScrollPage):
         self.info_card = Card()
         self.versions_card = Card()
         self.routes_card = Card()
+        self._build_versions_header()
         self.content_layout.addWidget(self.info_card)
         self.content_layout.addWidget(self.versions_card)
         self.content_layout.addWidget(self.routes_card)
@@ -72,11 +73,44 @@ class ApplicationPage(ScrollPage):
         self._fill_routes(application)
 
     def _clear(self, card: Card) -> None:
-        while card.body.count():
-            item = card.body.takeAt(0)
+        self._clear_layout(card.body)
+
+    def _clear_layout(self, layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
+
+    def _build_versions_header(self) -> None:
+        header = QWidget()
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("Версии приложения")
+        title.setObjectName("sectionTitle")
+        add = PrimaryButton("Добавить версию")
+        add.clicked.connect(self._add_version)
+        layout.addWidget(title)
+        layout.addStretch()
+        layout.addWidget(add)
+        self.versions_card.body.addWidget(header)
+
+        filters = QWidget()
+        filters_layout = QHBoxLayout(filters)
+        filters_layout.setContentsMargins(0, 0, 0, 0)
+        for store in AppStore:
+            box = QCheckBox(store.label)
+            box.setChecked(True)
+            box.toggled.connect(lambda checked, item=store: self._toggle_store_filter(item, checked))
+            filters_layout.addWidget(box)
+        filters_layout.addStretch()
+        self.versions_card.body.addWidget(filters)
+
+        self._versions_list = QWidget()
+        self._versions_list_layout = QVBoxLayout(self._versions_list)
+        self._versions_list_layout.setContentsMargins(0, 0, 0, 0)
+        self._versions_list_layout.setSpacing(8)
+        self.versions_card.body.addWidget(self._versions_list)
 
     def _fill_info(self, app: Application) -> None:
         self._clear(self.info_card)
@@ -98,10 +132,14 @@ class ApplicationPage(ScrollPage):
             ("App Store", "usePaymentAppStore", app.use_payment_app_store),
             ("RuStore", "usePaymentRuStore", app.use_payment_ru_store),
         ):
-            btn = GhostButton(f"{'Выключить' if value else 'Включить'} {label}")
-            btn.clicked.connect(lambda _=False, f=field, v=value, name=label: self._toggle_payment(f, not v, name))
-            payments_layout.addWidget(StatusDot(value, label))
-            payments_layout.addWidget(btn)
+            switch = Switch(label)
+            switch.blockSignals(True)
+            switch.setChecked(value)
+            switch.blockSignals(False)
+            switch.toggled.connect(
+                lambda checked, f=field, name=label, widget=switch: self._toggle_payment(f, checked, name, widget)
+            )
+            payments_layout.addWidget(switch)
         payments_layout.addStretch()
         self.info_card.body.addWidget(payments)
 
@@ -134,31 +172,32 @@ class ApplicationPage(ScrollPage):
         return row
 
     def _fill_versions(self, app: Application) -> None:
-        self._clear(self.versions_card)
-        header = QWidget()
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Версии приложения")
-        title.setObjectName("sectionTitle")
-        add = PrimaryButton("Добавить версию")
-        add.clicked.connect(self._add_version)
-        layout.addWidget(title)
-        layout.addStretch()
-        layout.addWidget(add)
-        self.versions_card.body.addWidget(header)
-        if not app.versions:
-            self.versions_card.body.addWidget(QLabel("Версии не найдены"))
+        self._clear_layout(self._versions_list_layout)
+        selected = self._store_filter or set(AppStore)
+        versions = [item for item in app.versions if item.store in selected]
+        if not versions:
+            self._versions_list_layout.addWidget(QLabel("Версии не найдены"))
             return
-        for version in app.versions:
+        for version in versions:
             row = QWidget()
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.addWidget(QLabel(f"{version.label}  ·  пользователей: {version.user_count}"))
+            row_layout.addWidget(
+                QLabel(f"{version.label}  ·  {version.store_label}  ·  пользователей: {version.user_count}")
+            )
             delete = GhostButton("Удалить")
             delete.clicked.connect(lambda _=False, vid=version.id, label=version.label: self._delete_version(vid, label))
             row_layout.addStretch()
             row_layout.addWidget(delete)
-            self.versions_card.body.addWidget(row)
+            self._versions_list_layout.addWidget(row)
+
+    def _toggle_store_filter(self, store: AppStore, checked: bool) -> None:
+        if checked:
+            self._store_filter.add(store)
+        else:
+            self._store_filter.discard(store)
+        if self._application:
+            self._fill_versions(self._application)
 
     def _fill_routes(self, app: Application) -> None:
         self._clear(self.routes_card)
@@ -215,42 +254,21 @@ class ApplicationPage(ScrollPage):
             row_layout.addWidget(del_p)
             self.routes_card.body.addWidget(row)
 
-        self.routes_card.body.addWidget(QLabel("Промокоды"))
-        add_promo = PrimaryButton("Добавить промокод")
-        add_promo.clicked.connect(lambda: self._add_promo(route.id))
-        self.routes_card.body.addWidget(add_promo, alignment=Qt.AlignLeft)
-        try:
-            promocodes = self.container.promocodes.list_by_route(route.id)
-        except Exception as exc:  # noqa: BLE001
-            self.routes_card.body.addWidget(QLabel(str(exc)))
-            return
-        for promo in promocodes:
-            row = QWidget()
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            status = "активен" if promo.is_active else "выключен"
-            row_layout.addWidget(QLabel(f"{promo.code}  ·  {promo.discount_percent}%  ·  {status}"))
-            copy = GhostButton("Копировать ссылку")
-            regen = GhostButton("Новый токен")
-            delete = GhostButton("Удалить")
-            copy.clicked.connect(lambda _=False, url=promo.deeplink_url: self._copy(url))
-            regen.clicked.connect(lambda _=False, pid=promo.id: self._regen(pid))
-            delete.clicked.connect(lambda _=False, pid=promo.id: self._delete_promo(pid))
-            row_layout.addStretch()
-            row_layout.addWidget(copy)
-            row_layout.addWidget(regen)
-            row_layout.addWidget(delete)
-            self.routes_card.body.addWidget(row)
-
-    def _toggle_payment(self, field: str, value: bool, store: str) -> None:
+    def _toggle_payment(self, field: str, value: bool, store: str, switch: Switch) -> None:
         action = "включить" if value else "выключить"
         if not confirm(self, "Подтверждение изменения", f"Вы точно хотите {action} оплату в {store}?"):
+            switch.blockSignals(True)
+            switch.setChecked(not value)
+            switch.blockSignals(False)
             return
         try:
             self.container.applications.update_payment_flag(self._app_id, field, value)
             notify_info(self, "Флаги оплаты успешно обновлены")
             self.on_enter({"application_id": self._app_id})
         except Exception as exc:  # noqa: BLE001
+            switch.blockSignals(True)
+            switch.setChecked(not value)
+            switch.blockSignals(False)
             notify_error(self, str(exc))
 
     def _edit_resources(self) -> None:
@@ -317,8 +335,8 @@ class ApplicationPage(ScrollPage):
             notify_error(self, str(exc))
 
     def _add_version(self) -> None:
-        latest = self._application.versions[-1] if self._application and self._application.versions else None
-        dialog = VersionDialog(self.container, self._app_id, latest, self)
+        versions = self._application.versions if self._application else ()
+        dialog = VersionDialog(self.container, self._app_id, versions, self)
         if dialog.exec_():
             self.on_enter({"application_id": self._app_id})
 
@@ -387,34 +405,6 @@ class ApplicationPage(ScrollPage):
         try:
             self.container.points.delete(point.id)
             notify_info(self, "Точка успешно удалена")
-            self.on_enter({"application_id": self._app_id})
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
-
-    def _add_promo(self, route_id: int) -> None:
-        dialog = PromocodeDialog(self.container, route_id, self)
-        if dialog.exec_():
-            self.on_enter({"application_id": self._app_id})
-
-    def _copy(self, url: str | None) -> None:
-        if not url:
-            notify_error(self, "Ссылка недоступна")
-            return
-        QGuiApplication.clipboard().setText(url)
-        notify_info(self, "Ссылка скопирована")
-
-    def _regen(self, promocode_id: int) -> None:
-        try:
-            self.container.promocodes.regenerate_token(promocode_id)
-            self.on_enter({"application_id": self._app_id})
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
-
-    def _delete_promo(self, promocode_id: int) -> None:
-        if not confirm(self, "Удаление", "Удалить промокод?"):
-            return
-        try:
-            self.container.promocodes.delete(promocode_id)
             self.on_enter({"application_id": self._app_id})
         except Exception as exc:  # noqa: BLE001
             notify_error(self, str(exc))

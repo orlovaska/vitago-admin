@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QSpinBox, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QSpinBox, QVBoxLayout, QWidget
 
 from app.core.container import Container
+from app.domain.enums import AppStore
 from app.domain.models import AppVersion
 from app.presentation.widgets.common import notify_error
 
@@ -12,15 +13,23 @@ class VersionDialog(QDialog):
         self,
         container: Container,
         application_id: int,
-        latest: AppVersion | None,
+        versions: tuple[AppVersion, ...] = (),
         parent: QWidget | None = None,
+        store: AppStore | None = None,
     ) -> None:
         super().__init__(parent)
         self._container = container
         self._application_id = application_id
-        self._latest = latest
+        self._versions = versions
         self.setWindowTitle("Добавить версию")
-        self.resize(420, 240)
+        self.resize(420, 280)
+        self.store = QComboBox()
+        for item in AppStore:
+            self.store.addItem(item.label, item.value)
+        if store is not None:
+            index = self.store.findData(store.value)
+            if index >= 0:
+                self.store.setCurrentIndex(index)
         self.major = QSpinBox()
         self.minor = QSpinBox()
         self.patch = QSpinBox()
@@ -29,6 +38,7 @@ class VersionDialog(QDialog):
         self.major.setValue(1)
         self.release_notes = QLineEdit()
         form = QFormLayout()
+        form.addRow("Стор", self.store)
         form.addRow("Major", self.major)
         form.addRow("Minor", self.minor)
         form.addRow("Patch", self.patch)
@@ -40,14 +50,19 @@ class VersionDialog(QDialog):
         layout.addLayout(form)
         layout.addWidget(buttons)
 
+    def _latest_for_store(self, store: AppStore) -> AppVersion | None:
+        matched = [item for item in self._versions if item.store == store]
+        if not matched:
+            return None
+        return max(matched, key=lambda item: item.as_tuple())
+
     def _save(self) -> None:
+        store = AppStore.from_api(self.store.currentData())
         major, minor, patch = self.major.value(), self.minor.value(), self.patch.value()
-        if self._latest:
-            current = (major, minor, patch)
-            latest = self._latest.as_tuple()
-            if current <= latest:
-                notify_error(self, f"Версия должна быть строго больше последней: {self._latest.label}")
-                return
+        latest = self._latest_for_store(store)
+        if latest and (major, minor, patch) <= latest.as_tuple():
+            notify_error(self, f"Версия должна быть строго больше последней для этого стора: {latest.label}")
+            return
         try:
             self._container.applications.create_version(
                 self._application_id,
@@ -55,6 +70,7 @@ class VersionDialog(QDialog):
                 minor,
                 patch,
                 self.release_notes.text().strip() or None,
+                store,
             )
             self.accept()
         except Exception as exc:  # noqa: BLE001

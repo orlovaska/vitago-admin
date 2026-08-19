@@ -21,6 +21,7 @@ class Palette:
     warning: str
     sidebar: str
     sidebar_text: str
+    sidebar_muted: str
     input: str
 
     @classmethod
@@ -39,8 +40,9 @@ class Palette:
                 success="#16a34a",
                 danger="#dc2626",
                 warning="#d97706",
-                sidebar="#10182b",
-                sidebar_text="#d7def0",
+                sidebar="#e3e9f4",
+                sidebar_text="#1a2744",
+                sidebar_muted="#5d6b86",
                 input="#ffffff",
             )
         return cls(
@@ -58,5 +60,6 @@ class Palette:
             warning="#f59e0b",
             sidebar="#0a101c",
             sidebar_text="#c9d4ea",
+            sidebar_muted="#9aa8c4",
             input="#0f1728",
         )

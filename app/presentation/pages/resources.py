@@ -6,7 +6,6 @@ from typing import Any
 from PyQt5.QtWidgets import QCheckBox, QFileDialog, QHBoxLayout, QWidget
 
 from app.core.container import Container
-from app.domain.enums import PageId
 from app.domain.models import Resource
 from app.presentation.navigation import NavigationMediator
 from app.presentation.pages.base import BasePage
@@ -19,9 +18,6 @@ class ResourcesPage(BasePage):
     def __init__(self, container: Container, navigator: NavigationMediator, parent: QWidget | None = None) -> None:
         super().__init__(container, navigator, parent)
         self._resources: list[Resource] = []
-        back = GhostButton("← Назад")
-        back.clicked.connect(lambda: self.navigator.go(PageId.DASHBOARD))
-        self._root.addWidget(back)
         self._root.addWidget(PageHeader("Управление ресурсами", "Изображения, аудио, JSON и PDF"))
 
         toolbar = Card()
@@ -42,7 +38,7 @@ class ResourcesPage(BasePage):
         toolbar.body.addLayout(row)
         self._root.addWidget(toolbar)
 
-        self.table = DataTable(["ID", "Путь", "MIME", "Использование", "Создано"])
+        self.table = DataTable(["ID", "Путь", "MIME", "Использование", "Создано"], name="resources")
         self._root.addWidget(self.table)
 
     def on_enter(self, payload: dict[str, Any]) -> None:

@@ -1,4 +1,4 @@
-from app.domain.enums import MimeType, ReviewStatus, ThemeMode
+from app.domain.enums import AppStore, MimeType, ReviewStatus, ThemeMode
 from app.domain.models import (
     AppVersion,
     Application,
@@ -12,6 +12,7 @@ from app.domain.models import (
 )
 
 __all__ = [
+    "AppStore",
     "MimeType",
     "ReviewStatus",
     "ThemeMode",

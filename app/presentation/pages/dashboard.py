@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGridLayout, QLabel, QWidget
+from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QWidget
 
 from app.core.container import Container
 from app.domain.enums import PageId
@@ -17,7 +17,7 @@ from app.presentation.widgets.common import Card, PageHeader, PrimaryButton, Sta
 class DashboardPage(ScrollPage):
     def __init__(self, container: Container, navigator: NavigationMediator, parent: QWidget | None = None) -> None:
         super().__init__(container, navigator, parent)
-        header = PageHeader("Гиды-клоны", "Управление приложениями, маршрутами и ресурсами")
+        header = PageHeader("Контент маршрутов", "Управление приложениями, маршрутами и ресурсами")
         self.add_button = PrimaryButton("Добавить приложение")
         self.add_button.clicked.connect(self._open_wizard)
         top = Card()
@@ -27,21 +27,11 @@ class DashboardPage(ScrollPage):
 
         self.grid_host = QWidget()
         self.grid = QGridLayout(self.grid_host)
+        self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setSpacing(12)
+        self.grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.grid.setColumnStretch(3, 1)
         self.content_layout.addWidget(self.grid_host)
-
-        actions = Card()
-        actions.body.addWidget(QLabel("Быстрые действия"))
-        resources_btn = PrimaryButton("Управление ресурсами")
-        reviews_btn = PrimaryButton("Одобрить отзыв")
-        geo_btn = PrimaryButton("Генерация маршрута")
-        resources_btn.clicked.connect(lambda: self.navigator.go(PageId.RESOURCES))
-        reviews_btn.clicked.connect(lambda: self.navigator.go(PageId.REVIEWS))
-        geo_btn.clicked.connect(lambda: self.navigator.go(PageId.GENERATE_ROUTE))
-        actions.body.addWidget(resources_btn)
-        actions.body.addWidget(reviews_btn)
-        actions.body.addWidget(geo_btn)
-        self.content_layout.addWidget(actions)
         self.content_layout.addStretch()
 
     def on_enter(self, payload: dict[str, Any]) -> None:
@@ -59,12 +49,14 @@ class DashboardPage(ScrollPage):
             self.grid.addWidget(empty, 0, 0)
             return
         for index, app in enumerate(applications):
-            self.grid.addWidget(self._card(app), index // 3, index % 3)
+            self.grid.addWidget(self._card(app), index // 3, index % 3, Qt.AlignLeft | Qt.AlignTop)
 
     def _card(self, app: Application) -> Card:
-        card = Card()
+        card = Card(object_name="appCard")
+        card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         title = QLabel(app.bundle_id)
         title.setObjectName("sectionTitle")
+        title.setWordWrap(True)
         card.body.addWidget(title)
         if app.payment_service_postfix:
             card.body.addWidget(QLabel(f"Постфикс оплаты: {app.payment_service_postfix}"))

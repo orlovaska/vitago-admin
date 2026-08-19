@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QEvent, QObject
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -34,9 +36,9 @@ def vbox(*widgets: QWidget, spacing: int = 10) -> QVBoxLayout:
 
 
 class Card(QFrame):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, object_name: str = "card") -> None:
         super().__init__(parent)
-        self.setObjectName("card")
+        self.setObjectName(object_name)
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(16, 16, 16, 16)
         self._layout.setSpacing(12)
@@ -74,6 +76,13 @@ class DangerButton(QPushButton):
     def __init__(self, text: str, parent: QWidget | None = None) -> None:
         super().__init__(text, parent)
         self.setObjectName("danger")
+        self.setCursor(Qt.PointingHandCursor)
+
+
+class Switch(QCheckBox):
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setObjectName("switch")
         self.setCursor(Qt.PointingHandCursor)
 
 
@@ -162,3 +171,51 @@ class LabeledField(QWidget):
         else:
             self.helper.hide()
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+
+class BusyOverlay(QWidget):
+    """Полупрозрачный слой на время загрузки с сервера."""
+
+    def __init__(self, host: QWidget) -> None:
+        super().__init__(host)
+        self.setObjectName("busyOverlay")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.hide()
+        host.installEventFilter(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        panel = QFrame()
+        panel.setObjectName("card")
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setSpacing(12)
+        self.label = QLabel("Загрузка с сервера…")
+        self.label.setObjectName("sectionTitle")
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setWordWrap(True)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 0)
+        self.bar.setTextVisible(False)
+        self.bar.setFixedWidth(260)
+        panel_layout.addWidget(self.label)
+        panel_layout.addWidget(self.bar, alignment=Qt.AlignCenter)
+        layout.addWidget(panel, alignment=Qt.AlignCenter)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # type: ignore[override]
+        if watched is self.parent() and event.type() == QEvent.Resize:
+            self._fit()
+        return super().eventFilter(watched, event)
+
+    def show_busy(self, text: str = "") -> None:
+        self.label.setText(text.strip() or "Загрузка с сервера…")
+        self._fit()
+        self.show()
+        self.raise_()
+
+    def hide_busy(self) -> None:
+        self.hide()
+
+    def _fit(self) -> None:
+        parent = self.parentWidget()
+        if parent is not None:
+            self.setGeometry(parent.rect())

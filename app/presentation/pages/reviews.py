@@ -5,7 +5,7 @@ from typing import Any
 from PyQt5.QtWidgets import QCheckBox, QHBoxLayout, QLabel
 
 from app.core.container import Container
-from app.domain.enums import PageId, ReviewStatus
+from app.domain.enums import ReviewStatus
 from app.domain.models import Review
 from app.presentation.navigation import NavigationMediator
 from app.presentation.pages.base import BasePage
@@ -17,9 +17,6 @@ class ReviewsPage(BasePage):
     def __init__(self, container: Container, navigator: NavigationMediator, parent: QWidget | None = None) -> None:
         super().__init__(container, navigator, parent)
         self._reviews: list[Review] = []
-        back = GhostButton("← Назад")
-        back.clicked.connect(lambda: self.navigator.go(PageId.DASHBOARD))
-        self._root.addWidget(back)
         self._root.addWidget(PageHeader("Одобрение отзывов", "Модерация отзывов пользователей"))
 
         filters = Card()
@@ -48,7 +45,8 @@ class ReviewsPage(BasePage):
         self._root.addLayout(actions)
 
         self.table = DataTable(
-            ["User ID", "Route ID", "Пользователь", "Маршрут", "Текст", "Оценка", "Статус", "Создано"]
+            ["User ID", "Route ID", "Пользователь", "Маршрут", "Текст", "Оценка", "Статус", "Создано"],
+            name="reviews",
         )
         self._root.addWidget(self.table)
 

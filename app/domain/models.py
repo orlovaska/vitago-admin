@@ -4,7 +4,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
-from app.domain.enums import MimeType, ReviewStatus
+from app.domain.enums import AppStore, MimeType, ReviewStatus
 
 
 def _opt_int(value: Any) -> int | None:
@@ -69,6 +69,7 @@ class AppVersion:
     major: int
     minor: int
     patch: int
+    store: AppStore
     release_notes: str | None = None
     version_string: str = ""
     created_at: str | None = None
@@ -77,6 +78,10 @@ class AppVersion:
     @property
     def label(self) -> str:
         return self.version_string or f"{self.major}.{self.minor}.{self.patch}"
+
+    @property
+    def store_label(self) -> str:
+        return self.store.label
 
     def as_tuple(self) -> tuple[int, int, int]:
         return self.major, self.minor, self.patch
@@ -95,6 +100,7 @@ class AppVersion:
             version_string=str(raw.get("versionString") or f"{major}.{minor}.{patch}"),
             created_at=str(raw.get("createdAt") or "") or None,
             user_count=int(raw.get("userCount") or 0),
+            store=AppStore.from_api(raw.get("store")),
         )
 
 
@@ -432,6 +438,63 @@ class Promocode:
             route_id=_opt_int(raw.get("routeId")),
             deeplink_url=_opt_str(raw.get("deeplinkUrl")),
         )
+
+
+@dataclass(frozen=True)
+class SecretItem:
+    key: str
+    value: str
+
+
+@dataclass(frozen=True)
+class SecretGroup:
+    file: str
+    label: str
+    services: tuple[str, ...]
+    secrets: tuple[SecretItem, ...]
+    raw: str = ""
+
+    @classmethod
+    def from_api(cls, raw: dict[str, Any]) -> SecretGroup:
+        secrets = tuple(
+            SecretItem(key=str(item.get("key") or ""), value=str(item.get("value") or ""))
+            for item in raw.get("secrets") or []
+            if item.get("key")
+        )
+        services = tuple(str(item) for item in raw.get("services") or [] if item)
+        return cls(
+            file=str(raw.get("file") or ""),
+            label=str(raw.get("label") or raw.get("file") or ""),
+            services=services,
+            secrets=secrets,
+            raw=str(raw.get("raw") or ""),
+        )
+
+
+@dataclass(frozen=True)
+class SecretsState:
+    writable: bool
+    restart_available: bool
+    restart_reason: str
+    groups: tuple[SecretGroup, ...]
+
+
+@dataclass(frozen=True)
+class ServerResource:
+    path: str
+    size: int | None
+    modified_at: str
+    on_disk: bool
+    in_db: bool
+
+
+@dataclass(frozen=True)
+class ServerResourcesState:
+    folder: str
+    reason: str
+    items: tuple[ServerResource, ...]
+    backup_note: str = ""
+    last_archive: str = ""
 
 
 ALLOWED_MIME_TYPES = frozenset(MimeType.values())

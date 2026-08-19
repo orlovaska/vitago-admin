@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QStyleFactory
 
 from app.core.container import Container
 from app.presentation.main_window import MainWindow
@@ -16,6 +16,7 @@ class ApplicationFactory:
         qt_app = QApplication.instance() or QApplication(sys.argv)
         qt_app.setApplicationName("Vitago Admin")
         qt_app.setOrganizationName("Vitago")
+        qt_app.setStyle(QStyleFactory.create("Fusion"))
         container = Container.build()
         window = MainWindow(container)
         return qt_app, window
