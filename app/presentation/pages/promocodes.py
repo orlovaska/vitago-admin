@@ -16,7 +16,7 @@ from app.presentation.widgets.common import (
     GhostButton,
     PageHeader,
     PrimaryButton,
-    confirm,
+    confirm_delete,
     notify_error,
     notify_info,
 )
@@ -211,7 +211,7 @@ class PromocodesPage(BasePage):
         if promo is None:
             notify_error(self, "Выберите промокод")
             return
-        if not confirm(self, "Удаление", "Удалить промокод?"):
+        if not confirm_delete(self, f"Удалить промокод {promo.code}?"):
             return
         try:
             self.container.promocodes.delete(promo.id)

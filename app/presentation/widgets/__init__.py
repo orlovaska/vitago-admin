@@ -9,6 +9,7 @@ from app.presentation.widgets.common import (
     StatusDot,
     Toast,
     confirm,
+    confirm_delete,
     notify_error,
     notify_info,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "StatusDot",
     "Toast",
     "confirm",
+    "confirm_delete",
     "notify_error",
     "notify_info",
     "DataTable",

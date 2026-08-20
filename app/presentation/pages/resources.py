@@ -9,7 +9,7 @@ from app.core.container import Container
 from app.domain.models import Resource
 from app.presentation.navigation import NavigationMediator
 from app.presentation.pages.base import BasePage
-from app.presentation.widgets.common import Card, DangerButton, GhostButton, PageHeader, PrimaryButton, confirm, notify_error, notify_info
+from app.presentation.widgets.common import Card, DangerButton, GhostButton, PageHeader, PrimaryButton, confirm_delete, notify_error, notify_info
 from app.presentation.widgets.data_table import DataTable
 from app.services.csv_export import export_csv
 
@@ -91,7 +91,7 @@ class ResourcesPage(BasePage):
         if not unused:
             notify_error(self, "Все выбранные ресурсы используются и не могут быть удалены")
             return
-        if not confirm(self, "Подтверждение массового удаления", f"Удалить {len(unused)} выбранных ресурсов?"):
+        if not confirm_delete(self, f"Удалить {len(unused)} выбранных ресурсов?"):
             return
         try:
             payload = self.container.resources.bulk_delete(unused)

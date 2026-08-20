@@ -168,6 +168,9 @@ def build_stylesheet(palette: Palette, ui_scale: int = DEFAULT_UI_SCALE) -> str:
         color: #ffffff;
         border: none;
     }}
+    QMessageBox QPushButton {{
+        min-width: {px(96)};
+    }}
     QPushButton#ghost {{
         background: transparent;
         color: {palette.text};

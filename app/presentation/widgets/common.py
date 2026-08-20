@@ -200,9 +200,31 @@ class StatusDot(QLabel):
         self.setText(f"<span style='color:{color}'>●</span>  {label}")
 
 
-def confirm(parent: QWidget, title: str, text: str) -> bool:
-    result = QMessageBox.question(parent, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-    return result == QMessageBox.Yes
+def confirm(
+    parent: QWidget,
+    title: str,
+    text: str,
+    *,
+    ok_text: str = "Да",
+    cancel_text: str = "Отмена",
+) -> bool:
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Question)
+    box.setWindowTitle(title)
+    box.setText(text)
+    box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+    box.setDefaultButton(QMessageBox.No)
+    yes = box.button(QMessageBox.Yes)
+    no = box.button(QMessageBox.No)
+    if yes is not None:
+        yes.setText(ok_text)
+    if no is not None:
+        no.setText(cancel_text)
+    return box.exec_() == QMessageBox.Yes
+
+
+def confirm_delete(parent: QWidget, text: str) -> bool:
+    return confirm(parent, "Подтверждение удаления", text, ok_text="Удалить", cancel_text="Отмена")
 
 
 def notify_error(parent: QWidget, message: str) -> None:

@@ -106,7 +106,9 @@ class ReviewsPage(BasePage):
             return
         row_id = str(selected[0])
         user_id, route_id = (int(part) for part in row_id.split("-"))
-        if action == "reject" and not confirm(self, "Отклонение", "Отклонить этот отзыв?"):
+        if action == "reject" and not confirm(
+            self, "Отклонение", "Отклонить этот отзыв?", ok_text="Отклонить", cancel_text="Отмена"
+        ):
             return
         try:
             if action == "approve":

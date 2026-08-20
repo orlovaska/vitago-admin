@@ -26,6 +26,7 @@ from app.presentation.widgets.common import (
     PrimaryButton,
     Switch,
     confirm,
+    confirm_delete,
     notify_error,
     notify_info,
 )
@@ -332,7 +333,7 @@ class ApplicationPage(ScrollPage):
     def _delete_app(self) -> None:
         if not self._application:
             return
-        if not confirm(self, "Подтверждение удаления", f"Удалить приложение {self._application.bundle_id}?"):
+        if not confirm_delete(self, f"Удалить приложение {self._application.bundle_id}?"):
             return
         try:
             self.container.applications.delete(self._application.id)
@@ -348,7 +349,7 @@ class ApplicationPage(ScrollPage):
             self.on_enter({"application_id": self._app_id})
 
     def _delete_version(self, version_id: int, label: str) -> None:
-        if not confirm(self, "Подтверждение удаления", f"Удалить версию {label}?"):
+        if not confirm_delete(self, f"Удалить версию {label}?"):
             return
         try:
             self.container.applications.delete_version(self._app_id, version_id)
@@ -368,7 +369,7 @@ class ApplicationPage(ScrollPage):
             self.on_enter({"application_id": self._app_id})
 
     def _delete_route(self, route_id: int, name: str) -> None:
-        if not confirm(self, "Подтверждение удаления", f"Удалить маршрут {name}?"):
+        if not confirm_delete(self, f"Удалить маршрут {name}?"):
             return
         try:
             self.container.routes.delete(route_id)
@@ -407,7 +408,7 @@ class ApplicationPage(ScrollPage):
     def _delete_point(self, point) -> None:
         if not point.id:
             return
-        if not confirm(self, "Подтверждение удаления", f"Удалить точку {point.name}?"):
+        if not confirm_delete(self, f"Удалить точку {point.name}?"):
             return
         try:
             self.container.points.delete(point.id)
