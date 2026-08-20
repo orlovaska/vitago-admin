@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -284,6 +285,13 @@ class LabeledField(QWidget):
 
 
 class NoWheelDoubleSpinBox(QDoubleSpinBox):
+    """Значение меняется только вводом или кнопками, не колесом мыши."""
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
+
+
+class NoWheelSpinBox(QSpinBox):
     """Значение меняется только вводом или кнопками, не колесом мыши."""
 
     def wheelEvent(self, event) -> None:  # type: ignore[override]

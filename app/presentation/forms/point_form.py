@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from PyQt5.QtWidgets import (
     QCheckBox,
     QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QSpinBox,
+    QPlainTextEdit,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -16,7 +18,13 @@ from PyQt5.QtWidgets import (
 
 from app.domain.enums import MimeType
 from app.domain.models import Point, Resource
-from app.presentation.widgets.common import GhostButton, LabeledField, NoWheelDoubleSpinBox, notify_error
+from app.presentation.widgets.common import (
+    GhostButton,
+    LabeledField,
+    NoWheelDoubleSpinBox,
+    NoWheelSpinBox,
+    notify_error,
+)
 from app.presentation.widgets.resource_picker import ResourcePicker
 from app.services.transcript_align import parse_cues_json
 
@@ -24,7 +32,6 @@ from app.services.transcript_align import parse_cues_json
 class PointFormWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._cues: list[dict] | None = None
 
         self.name = QLineEdit()
         self.description = QTextEdit()
@@ -41,10 +48,10 @@ class PointFormWidget(QWidget):
         self.google = QLineEdit()
         self.two_gis = QLineEdit()
         self.is_free = QCheckBox("Бесплатная точка")
-        self.level = QSpinBox()
+        self.level = NoWheelSpinBox()
         self.level.setMinimum(1)
         self.level.setMaximum(1000)
-        self.radius = QSpinBox()
+        self.radius = NoWheelSpinBox()
         self.radius.setMaximum(10_000)
         self.radius.setValue(40)
         self.image = ResourcePicker()
@@ -52,17 +59,53 @@ class PointFormWidget(QWidget):
         self.locked = ResourcePicker()
         self.audio = ResourcePicker()
 
-        self.transcript = QTextEdit()
-        self.transcript.setPlaceholderText("Текст, который звучит в аудио (не таймкоды)")
-        self.transcript.setMaximumHeight(120)
-        self.cues_label = QLabel("Таймкоды: нет")
-        self.cues_label.setObjectName("muted")
+        self.transcript = QPlainTextEdit()
+        self.transcript.setPlaceholderText("Сплошной текст транскрипта (как в TXT)")
+        self.transcript.setMinimumHeight(100)
+        self.transcript.setMaximumHeight(160)
+        self.transcript.textChanged.connect(self._refresh_transcript_title)
+
+        self.cues_json = QPlainTextEdit()
+        self.cues_json.setPlaceholderText('JSON таймкодов: [ { "start": 0.0, "end": 0.4, "text": "слово" }, … ]')
+        self.cues_json.setMinimumHeight(140)
+        self.cues_json.setMaximumHeight(220)
+        self.cues_json.textChanged.connect(self._refresh_transcript_title)
+
+        self.cues_status = QLabel()
+        self.cues_status.setObjectName("muted")
+        self.cues_status.setWordWrap(True)
+
         load_transcript = GhostButton("Загрузить текст…")
-        load_cues = GhostButton("Загрузить JSON таймкодов…")
-        clear_cues = GhostButton("Очистить таймкоды")
+        load_cues = GhostButton("Загрузить JSON…")
+        clear_cues = GhostButton("Очистить JSON")
         load_transcript.clicked.connect(self._load_transcript_file)
         load_cues.clicked.connect(self._load_cues_file)
         clear_cues.clicked.connect(self._clear_cues)
+
+        transcript_actions = QHBoxLayout()
+        transcript_actions.setContentsMargins(0, 0, 0, 0)
+        transcript_actions.addWidget(load_transcript)
+        transcript_actions.addWidget(load_cues)
+        transcript_actions.addWidget(clear_cues)
+        transcript_actions.addStretch()
+
+        self._transcript_body = QWidget()
+        body_layout = QVBoxLayout(self._transcript_body)
+        body_layout.setContentsMargins(0, 8, 0, 0)
+        body_layout.setSpacing(8)
+        body_layout.addWidget(LabeledField("Текст", self.transcript))
+        body_layout.addWidget(LabeledField("Таймкоды (JSON)", self.cues_json))
+        body_layout.addWidget(self.cues_status)
+        body_layout.addLayout(transcript_actions)
+
+        self.transcript_group = QGroupBox("Транскрипция")
+        self.transcript_group.setCheckable(True)
+        self.transcript_group.setChecked(False)
+        self.transcript_group.setFlat(False)
+        group_layout = QVBoxLayout(self.transcript_group)
+        group_layout.addWidget(self._transcript_body)
+        self.transcript_group.toggled.connect(self._on_transcript_toggled)
+        self._transcript_body.setVisible(False)
 
         layout = QVBoxLayout(self)
         layout.addWidget(LabeledField("Название точки", self.name))
@@ -85,14 +128,15 @@ class PointFormWidget(QWidget):
         layout.addWidget(LabeledField("Маркер на карте", self.marker))
         layout.addWidget(LabeledField("Заблокированный маркер", self.locked))
         layout.addWidget(LabeledField("Аудио-ресурс", self.audio))
-        layout.addWidget(LabeledField("Транскрипт аудио", self.transcript))
-        cues_row = QHBoxLayout()
-        cues_row.addWidget(load_transcript)
-        cues_row.addWidget(load_cues)
-        cues_row.addWidget(clear_cues)
-        cues_row.addStretch()
-        layout.addLayout(cues_row)
-        layout.addWidget(self.cues_label)
+        layout.addWidget(self.transcript_group)
+        self._refresh_transcript_title()
+
+    def _on_transcript_toggled(self, checked: bool) -> None:
+        self._transcript_body.setVisible(checked)
+        # Checkable QGroupBox иначе оставляет детей disabled при collapse.
+        self._transcript_body.setEnabled(True)
+        for child in self._transcript_body.findChildren(QWidget):
+            child.setEnabled(True)
 
     def set_resources(self, resources: list[Resource]) -> None:
         self.image.set_resources(resources, MimeType.PNG)
@@ -118,8 +162,11 @@ class PointFormWidget(QWidget):
         self.locked.set_value(point.locked_marker_resource_id)
         self.audio.set_value(point.audio_resource_id)
         self.transcript.setPlainText(point.transcript or "")
-        self._cues = list(point.transcript_cues) if point.transcript_cues is not None else None
-        self._refresh_cues_label()
+        if point.transcript_cues is not None:
+            self.cues_json.setPlainText(json.dumps(list(point.transcript_cues), ensure_ascii=False, indent=2))
+        else:
+            self.cues_json.clear()
+        self._refresh_transcript_title()
 
     def to_point(self, point_id: int | None = None, route_id: int | None = None) -> Point:
         return Point(
@@ -142,7 +189,7 @@ class PointFormWidget(QWidget):
             locked_marker_resource_id=self.locked.value(),
             audio_resource_id=self.audio.value(),
             transcript=self.transcript.toPlainText().strip() or None,
-            transcript_cues=tuple(self._cues) if self._cues is not None else None,
+            transcript_cues=self._cues_from_editor(),
         )
 
     def errors(self) -> list[str]:
@@ -167,7 +214,19 @@ class PointFormWidget(QWidget):
             errors.append("Заблокированный маркер обязателен")
         if not self.audio.value():
             errors.append("Аудио-ресурс обязателен")
+        raw = self.cues_json.toPlainText().strip()
+        if raw:
+            try:
+                parse_cues_json(raw)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"JSON таймкодов: {exc}")
         return errors
+
+    def _cues_from_editor(self) -> tuple[dict, ...] | None:
+        raw = self.cues_json.toPlainText().strip()
+        if not raw:
+            return None
+        return tuple(parse_cues_json(raw))
 
     def _load_transcript_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Транскрипт", "", "Текст (*.txt);;Все файлы (*.*)")
@@ -179,6 +238,8 @@ class PointFormWidget(QWidget):
             notify_error(self, str(exc))
             return
         self.transcript.setPlainText(text)
+        if not self.transcript_group.isChecked():
+            self.transcript_group.setChecked(True)
 
     def _load_cues_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "JSON таймкодов", "", "JSON (*.json);;Все файлы (*.*)")
@@ -190,15 +251,29 @@ class PointFormWidget(QWidget):
         except Exception as exc:  # noqa: BLE001
             notify_error(self, str(exc))
             return
-        self._cues = cues
-        self._refresh_cues_label()
+        self.cues_json.setPlainText(json.dumps(cues, ensure_ascii=False, indent=2))
+        if not self.transcript_group.isChecked():
+            self.transcript_group.setChecked(True)
+        self._refresh_transcript_title()
 
     def _clear_cues(self) -> None:
-        self._cues = None
-        self._refresh_cues_label()
+        self.cues_json.clear()
+        self._refresh_transcript_title()
 
-    def _refresh_cues_label(self) -> None:
-        if self._cues is None:
-            self.cues_label.setText("Таймкоды: нет")
-            return
-        self.cues_label.setText(f"Таймкоды: {len(self._cues)} слов")
+    def _refresh_transcript_title(self) -> None:
+        raw = self.cues_json.toPlainText().strip()
+        text = self.transcript.toPlainText().strip()
+        if not raw:
+            status = "таймкодов нет"
+            detail = "JSON пустой — таймкодов нет"
+        else:
+            try:
+                cues = parse_cues_json(raw)
+                status = f"{len(cues)} таймкодов"
+                detail = f"JSON валиден: {len(cues)} слов с start/end"
+            except Exception as exc:  # noqa: BLE001
+                status = "ошибка JSON"
+                detail = f"JSON невалиден: {exc}"
+        text_bit = "есть текст" if text else "текста нет"
+        self.transcript_group.setTitle(f"Транскрипция — {text_bit}, {status}")
+        self.cues_status.setText(detail)

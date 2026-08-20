@@ -183,11 +183,10 @@ class Point:
             "name": self.name,
             "description": self.description,
             "transcript": self.transcript,
+            "transcriptCues": list(self.transcript_cues) if self.transcript_cues is not None else None,
             "address": self.address,
             "workingHours": self.working_hours,
         }
-        if self.transcript_cues is not None:
-            basic["transcriptCues"] = list(self.transcript_cues)
         return {
             "basicInfo": basic,
             "coordinates": {
