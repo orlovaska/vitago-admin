@@ -4,6 +4,40 @@ from dataclasses import dataclass
 from typing import Any
 
 
+GEOJSON_EXAMPLE = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"name": "Театр оперы и балета"},
+            "geometry": {"type": "Point", "coordinates": [56.2463, 58.0156]},
+        },
+        {
+            "type": "Feature",
+            "properties": {"name": "Дом Мешкова"},
+            "geometry": {"type": "Point", "coordinates": [56.2398, 58.0174]},
+        },
+        {
+            "type": "Feature",
+            "properties": {},
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [56.2463, 58.0156],
+                    [56.2398, 58.0174],
+                ],
+            },
+        },
+    ],
+}
+
+
+def geojson_example_text() -> str:
+    import json
+
+    return json.dumps(GEOJSON_EXAMPLE, ensure_ascii=False, indent=2)
+
+
 @dataclass(frozen=True)
 class RoutePoint:
     latitude: float

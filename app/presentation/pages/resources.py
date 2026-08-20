@@ -27,11 +27,14 @@ class ResourcesPage(BasePage):
         upload = PrimaryButton("Загрузить файлы")
         bulk = DangerButton("Удалить выбранные")
         export_btn = GhostButton("Экспорт в CSV")
+        download = GhostButton("Скачать выбранные")
         upload.clicked.connect(self._upload)
         bulk.clicked.connect(self._bulk_delete)
         export_btn.clicked.connect(self._export)
+        download.clicked.connect(self._download)
         row.addWidget(self.unused_only)
         row.addStretch()
+        row.addWidget(download)
         row.addWidget(upload)
         row.addWidget(bulk)
         row.addWidget(export_btn)
@@ -96,6 +99,29 @@ class ResourcesPage(BasePage):
             self.on_enter({})
         except Exception as exc:  # noqa: BLE001
             notify_error(self, str(exc))
+
+    def _download(self) -> None:
+        selected = {int(item) for item in self.table.selected_ids() if item is not None}
+        items = [r for r in self._resources if r.resource_id in selected]
+        if not items:
+            notify_error(self, "Не выбрано ни одного ресурса")
+            return
+        target_dir = QFileDialog.getExistingDirectory(self, "Выберите папку для сохранения")
+        if not target_dir:
+            return
+        dest = Path(target_dir)
+        ok, failed = 0, 0
+        for item in items:
+            try:
+                data, _ = self.container.resources.download(item.resource_id)
+                (dest / item.file_name).write_bytes(data)
+                ok += 1
+            except Exception:  # noqa: BLE001
+                failed += 1
+        msg = f"Скачано: {ok}"
+        if failed:
+            msg += f", ошибок: {failed}"
+        notify_info(self, msg)
 
     def _export(self) -> None:
         items = self._visible()

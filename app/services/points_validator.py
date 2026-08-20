@@ -37,6 +37,33 @@ REQUIRED_FIELDS = (
     "audioResourceId",
 )
 
+POINTS_JSON_EXAMPLE = [
+    {
+        "name": "Театр оперы и балета",
+        "latitude": 58.0156,
+        "longitude": 56.2463,
+        "description": "Первая точка маршрута",
+        "address": "Пермь",
+        "working_hours": "круглосуточно",
+        "yandex_map_link": "https://yandex.ru/maps/?ll=56.2463,58.0156&z=16",
+        "google_map_link": "https://maps.google.com/?q=58.0156,56.2463",
+        "two_gis_map_link": "https://2gis.ru/geo/56.2463,58.0156",
+        "is_free": True,
+        "level": 1,
+        "auto_play_radius_m": 40,
+        "imageResourceId": 1,
+        "markerResourceId": 2,
+        "lockedMarkerResourceId": 3,
+        "audioResourceId": 4,
+    }
+]
+
+
+def points_json_example_text() -> str:
+    import json
+
+    return json.dumps(POINTS_JSON_EXAMPLE, ensure_ascii=False, indent=2)
+
 
 @dataclass(frozen=True)
 class ValidationResult:

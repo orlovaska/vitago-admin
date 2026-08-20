@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QCheckBox, QFileDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from PyQt5.QtGui import QGuiApplication
 
 from app.core.container import Container
 from app.domain.enums import AppStore, PageId
-from app.domain.models import Application, Resource
+from app.domain.models import Application, AppVersion, Resource
 from app.presentation.dialogs.point_dialog import PointDialog
 from app.presentation.dialogs.route_dialog import RouteDialog
 from app.presentation.dialogs.version_dialog import VersionDialog
@@ -21,6 +21,7 @@ from app.presentation.widgets.common import (
     Card,
     DangerButton,
     GhostButton,
+    HCarousel,
     PageHeader,
     PrimaryButton,
     Switch,
@@ -37,7 +38,6 @@ class ApplicationPage(ScrollPage):
         self._app_id: int | None = None
         self._application: Application | None = None
         self._resources: list[Resource] = []
-        self._store_filter: set[AppStore] = set(AppStore)
 
         back = GhostButton("← Назад")
         back.clicked.connect(lambda: self.navigator.go(PageId.DASHBOARD))
@@ -88,29 +88,20 @@ class ApplicationPage(ScrollPage):
         layout.setContentsMargins(0, 0, 0, 0)
         title = QLabel("Версии приложения")
         title.setObjectName("sectionTitle")
+        self._store_combo = QComboBox()
+        for store in AppStore:
+            self._store_combo.addItem(store.label, store.value)
+        self._store_combo.currentIndexChanged.connect(self._on_store_changed)
         add = PrimaryButton("Добавить версию")
         add.clicked.connect(self._add_version)
         layout.addWidget(title)
+        layout.addWidget(self._store_combo)
         layout.addStretch()
         layout.addWidget(add)
         self.versions_card.body.addWidget(header)
 
-        filters = QWidget()
-        filters_layout = QHBoxLayout(filters)
-        filters_layout.setContentsMargins(0, 0, 0, 0)
-        for store in AppStore:
-            box = QCheckBox(store.label)
-            box.setChecked(True)
-            box.toggled.connect(lambda checked, item=store: self._toggle_store_filter(item, checked))
-            filters_layout.addWidget(box)
-        filters_layout.addStretch()
-        self.versions_card.body.addWidget(filters)
-
-        self._versions_list = QWidget()
-        self._versions_list_layout = QVBoxLayout(self._versions_list)
-        self._versions_list_layout.setContentsMargins(0, 0, 0, 0)
-        self._versions_list_layout.setSpacing(8)
-        self.versions_card.body.addWidget(self._versions_list)
+        self._versions_carousel = HCarousel()
+        self.versions_card.body.addWidget(self._versions_carousel)
 
     def _fill_info(self, app: Application) -> None:
         self._clear(self.info_card)
@@ -171,33 +162,49 @@ class ApplicationPage(ScrollPage):
         layout.addStretch()
         return row
 
-    def _fill_versions(self, app: Application) -> None:
-        self._clear_layout(self._versions_list_layout)
-        selected = self._store_filter or set(AppStore)
-        versions = [item for item in app.versions if item.store in selected]
-        if not versions:
-            self._versions_list_layout.addWidget(QLabel("Версии не найдены"))
-            return
-        for version in versions:
-            row = QWidget()
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.addWidget(
-                QLabel(f"{version.label}  ·  {version.store_label}  ·  пользователей: {version.user_count}")
-            )
-            delete = GhostButton("Удалить")
-            delete.clicked.connect(lambda _=False, vid=version.id, label=version.label: self._delete_version(vid, label))
-            row_layout.addStretch()
-            row_layout.addWidget(delete)
-            self._versions_list_layout.addWidget(row)
+    def _selected_store(self) -> AppStore:
+        return AppStore.from_api(self._store_combo.currentData())
 
-    def _toggle_store_filter(self, store: AppStore, checked: bool) -> None:
-        if checked:
-            self._store_filter.add(store)
-        else:
-            self._store_filter.discard(store)
+    def _on_store_changed(self) -> None:
         if self._application:
             self._fill_versions(self._application)
+
+    def _fill_versions(self, app: Application) -> None:
+        self._versions_carousel.clear()
+        store = self._selected_store()
+        versions = sorted(
+            (item for item in app.versions if item.store == store),
+            key=lambda item: item.as_tuple(),
+            reverse=True,
+        )
+        if not versions:
+            empty = QLabel("Версии не найдены")
+            empty.setAlignment(Qt.AlignCenter)
+            self._versions_carousel.add_widget(empty)
+            return
+        for version in versions:
+            self._versions_carousel.add_widget(self._version_card(version))
+
+    def _version_card(self, version: AppVersion) -> Card:
+        card = Card(object_name="appCard")
+        card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        title = QLabel(version.label)
+        title.setObjectName("sectionTitle")
+        card.body.addWidget(title)
+        card.body.addWidget(QLabel(f"Пользователей: {version.user_count}"))
+        if version.release_notes:
+            notes = QLabel(version.release_notes)
+            notes.setWordWrap(True)
+            notes.setObjectName("muted")
+            card.body.addWidget(notes)
+        if version.created_at:
+            card.body.addWidget(QLabel(version.created_at))
+        delete = GhostButton("Удалить")
+        delete.clicked.connect(
+            lambda _=False, vid=version.id, label=version.label: self._delete_version(vid, label)
+        )
+        card.body.addWidget(delete)
+        return card
 
     def _fill_routes(self, app: Application) -> None:
         self._clear(self.routes_card)
@@ -336,7 +343,7 @@ class ApplicationPage(ScrollPage):
 
     def _add_version(self) -> None:
         versions = self._application.versions if self._application else ()
-        dialog = VersionDialog(self.container, self._app_id, versions, self)
+        dialog = VersionDialog(self.container, self._app_id, versions, self, store=self._selected_store())
         if dialog.exec_():
             self.on_enter({"application_id": self._app_id})
 

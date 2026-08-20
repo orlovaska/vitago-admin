@@ -65,5 +65,3 @@ class Settings:
     def reset(cls) -> None:
         cls._instance = None
 
-    def resource_url(self, resource_id: int) -> str:
-        return f"{self.api_base_url}/resource/{resource_id}"

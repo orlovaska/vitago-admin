@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -46,6 +47,66 @@ class Card(QFrame):
     @property
     def body(self) -> QVBoxLayout:
         return self._layout
+
+
+class HCarousel(QWidget):
+    """Горизонтальная карусель виджетов: стрелки и прокрутка колесом."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._prev = GhostButton("‹")
+        self._next = GhostButton("›")
+        self._prev.setFixedWidth(36)
+        self._next.setFixedWidth(36)
+        self._prev.clicked.connect(lambda: self._nudge(-1))
+        self._next.clicked.connect(lambda: self._nudge(1))
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setMinimumHeight(180)
+        self.scroll.viewport().installEventFilter(self)
+
+        self._inner = QWidget()
+        self._cards = QHBoxLayout(self._inner)
+        self._cards.setContentsMargins(0, 0, 0, 0)
+        self._cards.setSpacing(12)
+        self._cards.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self._cards.addStretch()
+        self.scroll.setWidget(self._inner)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self._prev)
+        layout.addWidget(self.scroll, 1)
+        layout.addWidget(self._next)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # type: ignore[override]
+        if watched is self.scroll.viewport() and event.type() == QEvent.Wheel:
+            delta = event.angleDelta().y() or event.angleDelta().x()
+            bar = self.scroll.horizontalScrollBar()
+            bar.setValue(bar.value() - delta)
+            return True
+        return super().eventFilter(watched, event)
+
+    def clear(self) -> None:
+        while self._cards.count() > 1:
+            item = self._cards.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def add_widget(self, widget: QWidget) -> None:
+        widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        self._cards.insertWidget(self._cards.count() - 1, widget)
+
+    def _nudge(self, direction: int) -> None:
+        bar = self.scroll.horizontalScrollBar()
+        step = max(240, int(self.scroll.viewport().width() * 0.8))
+        bar.setValue(bar.value() + direction * step)
 
 
 class PageHeader(QWidget):

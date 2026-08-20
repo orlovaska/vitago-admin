@@ -35,6 +35,9 @@ class ResourceRepository(BaseRepository):
         payload = self._client.post("/admin/resources/bulk-delete", json={"ids": ids})
         return payload
 
+    def download(self, resource_id: int) -> tuple[bytes, str]:
+        return self._client.get_bytes(f"/admin/resources/{resource_id}/file")
+
 
 def _guess_mime(path: Path) -> str:
     suffix = path.suffix.lower()

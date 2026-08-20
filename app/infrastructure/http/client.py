@@ -65,6 +65,18 @@ class ApiClient:
         except ValueError as exc:
             raise ApiError("Сервер вернул некорректный JSON") from exc
 
+    def get_bytes(self, path: str, timeout: int | None = None) -> tuple[bytes, str]:
+        url = f"{self._settings.api_base_url}{path}"
+        kwargs: dict[str, Any] = {"timeout": timeout or self._settings.api_timeout_seconds}
+        kwargs = self._chain.handle_request("GET", url, kwargs)
+        try:
+            response: Response = self._session.request("GET", url, **kwargs)
+        except requests.RequestException as exc:
+            raise ApiError(f"Ошибка подключения к серверу: {exc}") from exc
+        self._chain.handle_response(response)
+        content_type = response.headers.get("content-type", "")
+        return response.content, content_type
+
     def get(self, path: str, **kwargs: Any) -> dict[str, Any]:
         return self.request("GET", path, **kwargs)
 

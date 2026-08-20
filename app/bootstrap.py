@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import QApplication, QStyleFactory
 
 from app.core.container import Container
 from app.presentation.main_window import MainWindow
+from app.presentation.widgets.resource_picker import ResourcePicker
 
 
 class ApplicationFactory:
@@ -18,5 +19,6 @@ class ApplicationFactory:
         qt_app.setOrganizationName("Vitago")
         qt_app.setStyle(QStyleFactory.create("Fusion"))
         container = Container.build()
+        ResourcePicker.set_default_fetcher(container.resources.download)
         window = MainWindow(container)
         return qt_app, window
