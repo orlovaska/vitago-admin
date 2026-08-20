@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 VENV_DIR = ROOT / ".venv"
 REQUIREMENTS = ROOT / "requirements.txt"
+ALIGN_REQUIREMENTS = ROOT / "requirements-align.txt"
 ENV_FILE = ROOT / ".env"
 ENV_EXAMPLE = ROOT / ".env.example"
 
@@ -34,6 +35,12 @@ def ensure_deps() -> None:
         [str(python_bin()), "-m", "pip", "install", "-r", str(REQUIREMENTS)],
         cwd=ROOT,
     )
+    if ALIGN_REQUIREMENTS.exists():
+        print("Проверяю зависимости распознавания (Whisper, не озвучка)...")
+        subprocess.check_call(
+            [str(python_bin()), "-m", "pip", "install", "-r", str(ALIGN_REQUIREMENTS)],
+            cwd=ROOT,
+        )
 
 
 def ensure_env() -> None:

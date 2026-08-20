@@ -13,6 +13,7 @@ from run import ROOT, ensure_venv, python_bin
 
 SPEC = ROOT / "vitago-admin.spec"
 BUILD_REQUIREMENTS = ROOT / "requirements-build.txt"
+ALIGN_REQUIREMENTS = ROOT / "requirements-align.txt"
 DIST_DIR = ROOT / "dist"
 EXE_NAME = "VitagoAdmin.exe"
 EXE_PATH = DIST_DIR / "VitagoAdmin" / EXE_NAME
@@ -38,6 +39,16 @@ def stop_running_exe() -> None:
     )
 
 
+def _pip_install(requirement_file: Path) -> None:
+    env = os.environ.copy()
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    subprocess.check_call(
+        [str(python_bin()), "-m", "pip", "install", "-q", "-r", str(requirement_file)],
+        cwd=ROOT,
+        env=env,
+    )
+
+
 def ensure_build_deps() -> None:
     probe = subprocess.run(
         [str(python_bin()), "-c", "import PyQt5, requests, dotenv, PyInstaller"],
@@ -46,16 +57,47 @@ def ensure_build_deps() -> None:
         stderr=subprocess.DEVNULL,
         check=False,
     )
-    if probe.returncode == 0:
-        return
-    print("Ставлю зависимости сборки...")
-    env = os.environ.copy()
-    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
-    subprocess.check_call(
-        [str(python_bin()), "-m", "pip", "install", "-q", "-r", str(BUILD_REQUIREMENTS)],
+    if probe.returncode != 0:
+        print("Ставлю зависимости сборки...")
+        _pip_install(BUILD_REQUIREMENTS)
+    align = subprocess.run(
+        [str(python_bin()), "-c", "import faster_whisper, imageio_ffmpeg"],
         cwd=ROOT,
-        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
     )
+    if align.returncode != 0 and ALIGN_REQUIREMENTS.exists():
+        print("Ставлю зависимости распознавания для сборки...")
+        _pip_install(ALIGN_REQUIREMENTS)
+        align = subprocess.run(
+            [str(python_bin()), "-c", "import faster_whisper, imageio_ffmpeg, ctranslate2, av, numpy"],
+            cwd=ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    if align.returncode != 0:
+        raise SystemExit(
+            "Не удалось импортировать пакеты распознавания. "
+            "Проверьте pip install -r requirements-align.txt"
+        )
+
+
+def copy_ffmpeg(dist_dir: Path) -> None:
+    probe = subprocess.run(
+        [str(python_bin()), "-c", "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    src = Path((probe.stdout or "").strip())
+    if probe.returncode != 0 or not src.is_file():
+        print("ffmpeg не найден — распознавание MP3 может не заработать")
+        return
+    shutil.copy2(src, dist_dir / "ffmpeg.exe")
+    print(f"Скопирован ffmpeg: {dist_dir / 'ffmpeg.exe'}")
 
 
 def pyinstaller_args(clean: bool) -> list[str]:
@@ -89,6 +131,7 @@ def build_exe(clean: bool) -> Path:
     ssh_dir = ROOT / ".ssh"
     if ssh_dir.is_dir():
         shutil.copytree(ssh_dir, EXE_PATH.parent / ".ssh", dirs_exist_ok=True)
+    copy_ffmpeg(EXE_PATH.parent)
     return EXE_PATH
 
 

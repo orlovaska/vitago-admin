@@ -35,6 +35,28 @@ def _parse_dt(value: Any) -> datetime | None:
         return None
 
 
+def _parse_cues(value: Any) -> tuple[dict[str, Any], ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return None
+    cues: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        try:
+            cues.append(
+                {
+                    "start": float(item["start"]),
+                    "end": float(item["end"]),
+                    "text": str(item["text"]),
+                }
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    return tuple(cues)
+
+
 @dataclass(frozen=True)
 class Resource:
     resource_id: int
@@ -124,12 +146,15 @@ class Point:
     marker_resource_id: int | None = None
     locked_marker_resource_id: int | None = None
     audio_resource_id: int | None = None
+    transcript: str | None = None
+    transcript_cues: tuple[dict[str, Any], ...] | None = None
 
     def with_updates(self, **kwargs: Any) -> Point:
         return replace(self, **kwargs)
 
     @classmethod
     def from_api(cls, raw: dict[str, Any]) -> Point:
+        cues = _parse_cues(raw.get("transcriptCues"))
         return cls(
             id=_opt_int(raw.get("id")),
             travel_route_id=_opt_int(raw.get("travelRouteId")),
@@ -149,16 +174,22 @@ class Point:
             marker_resource_id=_opt_int(raw.get("markerResourceId")),
             locked_marker_resource_id=_opt_int(raw.get("lockedMarkerResourceId")),
             audio_resource_id=_opt_int(raw.get("audioResourceId")),
+            transcript=_opt_str(raw.get("transcript")),
+            transcript_cues=cues,
         )
 
     def to_form_dto(self) -> dict[str, Any]:
+        basic: dict[str, Any] = {
+            "name": self.name,
+            "description": self.description,
+            "transcript": self.transcript,
+            "address": self.address,
+            "workingHours": self.working_hours,
+        }
+        if self.transcript_cues is not None:
+            basic["transcriptCues"] = list(self.transcript_cues)
         return {
-            "basicInfo": {
-                "name": self.name,
-                "description": self.description,
-                "address": self.address,
-                "workingHours": self.working_hours,
-            },
+            "basicInfo": basic,
             "coordinates": {
                 "latitude": self.latitude,
                 "longitude": self.longitude,
@@ -189,6 +220,7 @@ class Point:
         links = dto.get("mapLinks") or {}
         settings = dto.get("settings") or {}
         resources = dto.get("resources") or {}
+        cues = _parse_cues(basic.get("transcriptCues"))
         return cls(
             id=point_id,
             travel_route_id=route_id,
@@ -208,6 +240,8 @@ class Point:
             marker_resource_id=_opt_int(resources.get("markerResourceId")),
             locked_marker_resource_id=_opt_int(resources.get("lockedMarkerResourceId")),
             audio_resource_id=_opt_int(resources.get("audioResourceId")),
+            transcript=_opt_str(basic.get("transcript")),
+            transcript_cues=cues,
         )
 
 

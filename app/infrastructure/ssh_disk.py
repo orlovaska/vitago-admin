@@ -3,11 +3,12 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 from datetime import date
+from pathlib import Path
 
 from app.core.config import Settings
 from app.core.exceptions import AppError
 from app.domain.models import ServerResource, ServerResourcesState
-from app.infrastructure.ssh import BundledRemoteScript
+from app.infrastructure.ssh import BundledRemoteScript, SshClient
 
 _ARCHIVE_DATE = re.compile(r"disk-(\d{4}-\d{2}-\d{2})\.tar\.gz$")
 
@@ -16,6 +17,7 @@ class SshDiskClient:
     """Список файлов ресурсов и архивный бэкап папки на сервере по SSH."""
 
     def __init__(self, settings: Settings) -> None:
+        self._settings = settings
         self._days = settings.server_disk_backup_days
         self._script = BundledRemoteScript(
             settings,
@@ -60,6 +62,48 @@ class SshDiskClient:
         if not path:
             raise AppError("Не удалось создать архив")
         return note, path
+
+    def latest_archive(self) -> str:
+        if not self.configured():
+            raise AppError(self.missing_reason())
+        archive, _size = parse_archive(self._script.run(["last"]))
+        if not archive:
+            raise AppError("На сервере нет архива в backups/")
+        return archive
+
+    def download_archive(self, remote_rel: str, local_path: Path) -> Path:
+        if not self.configured():
+            raise AppError(self.missing_reason())
+        remote = self._remote_file(remote_rel)
+        target = local_path.expanduser().resolve()
+        self._ssh().download(remote, target, timeout=600)
+        if not target.is_file():
+            raise AppError(f"Файл не скачан: {target}")
+        return target
+
+    def create_backup_and_download(self, local_dir: Path | None = None) -> tuple[str, Path]:
+        note, remote_rel = self.create_backup()
+        target_dir = (local_dir or (Path.home() / "Downloads")).expanduser()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        local = self.download_archive(remote_rel, target_dir / Path(remote_rel).name)
+        return note, local
+
+    def download_latest(self, local_dir: Path | None = None) -> Path:
+        remote_rel = self.latest_archive()
+        target_dir = (local_dir or (Path.home() / "Downloads")).expanduser()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        return self.download_archive(remote_rel, target_dir / Path(remote_rel).name)
+
+    def _ssh(self) -> SshClient:
+        return SshClient(
+            self._settings.secrets_ssh_host,
+            self._settings.secrets_ssh_user,
+            self._settings.secrets_ssh_key,
+        )
+
+    def _remote_file(self, relative: str) -> str:
+        root = self._settings.secrets_remote_path.strip().rstrip("/")
+        return f"{root}/{relative.replace(chr(92), '/').lstrip('/')}"
 
 
 def note_from_backup(output: str, fallback: str = "") -> tuple[str, str]:

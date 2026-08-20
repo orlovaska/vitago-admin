@@ -23,7 +23,7 @@ class PointDialog(JobDialog):
         self._route_id = route_id
         self._point = point
         self.setWindowTitle("Редактировать точку" if point else "Создать точку")
-        self.resize(680, 760)
+        self.resize(960, 760)
         self.form = PointFormWidget()
         self.form.set_resources(resources)
         if point:

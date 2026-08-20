@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QSettings
 from PyQt5.QtWidgets import QFrame, QLabel, QLineEdit, QVBoxLayout, QWidget
 
 from app.core.container import Container
@@ -10,6 +10,17 @@ from app.domain.enums import PageId
 from app.presentation.navigation import NavigationMediator
 from app.presentation.pages.base import BasePage
 from app.presentation.widgets.common import Card, InlineNotice, PageHeader, PrimaryButton
+
+
+def _home_page() -> PageId:
+    raw = str(QSettings("Vitago", "AdminPanel").value("lastPage", PageId.DASHBOARD.value) or PageId.DASHBOARD.value)
+    try:
+        page = PageId(raw)
+    except ValueError:
+        return PageId.DASHBOARD
+    if page is PageId.LOGIN:
+        return PageId.DASHBOARD
+    return page
 
 
 class LoginPage(BasePage):
@@ -67,7 +78,7 @@ class LoginPage(BasePage):
         token, login = result
         self.container.session.set_credentials(token, login)
         self.submit.setEnabled(True)
-        self.navigator.go(PageId.DASHBOARD)
+        self.navigator.go(_home_page())
 
     def _on_error(self, message: str) -> None:
         self.submit.setEnabled(True)

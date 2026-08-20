@@ -3,14 +3,25 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from PyQt5.QtCore import QBuffer, QByteArray, QObject, QTimer, Qt, pyqtSignal
+from PyQt5.QtCore import (
+    QBuffer,
+    QByteArray,
+    QEvent,
+    QObject,
+    QSortFilterProxyModel,
+    QTimer,
+    Qt,
+    pyqtSignal,
+)
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QListView,
     QPlainTextEdit,
     QSizePolicy,
     QSlider,
@@ -25,68 +36,93 @@ from app.domain.enums import MimeType
 from app.domain.models import Resource
 
 Fetcher = Callable[[int], tuple[bytes, str]]
+_LIST_ROWS = 8
 
 
 class _ResourceComboBox(QComboBox):
-    """Поиск по списку: значение только из items, колесо не меняет выбор."""
+    """Редактор без нативного popup: он забирает фокус и гасит каретку."""
+
+    query_changed = pyqtSignal(str)
+    popup_requested = pyqtSignal()
+    focus_left = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._query: str | None = None
+        self._from_list = False
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.NoInsert)
         self.setCompleter(None)
         edit = self.lineEdit()
         edit.setPlaceholderText("Поиск по имени файла...")
+        edit.setCompleter(None)
         edit.textEdited.connect(self._on_text_edited)
+        edit.returnPressed.connect(self.commit_query)
+        edit.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # type: ignore[override]
+        if watched is self.lineEdit() and event.type() == QEvent.FocusOut:
+            self.focus_left.emit()
+        return super().eventFilter(watched, event)
 
     def wheelEvent(self, event) -> None:  # type: ignore[override]
-        if self.view().isVisible():
-            super().wheelEvent(event)
-            return
         event.ignore()
 
     def showPopup(self) -> None:  # type: ignore[override]
-        super().showPopup()
-        self._apply_filter()
-        if self._query is not None:
-            self._set_edit_text(self._query)
+        self.popup_requested.emit()
 
     def hidePopup(self) -> None:  # type: ignore[override]
-        super().hidePopup()
+        return
+
+    def pick_row(self, row: int) -> None:
+        self._from_list = True
         self._query = None
-        self._apply_filter()
+        self.setCurrentIndex(row)
         self._sync_edit()
 
-    def _on_text_edited(self, text: str) -> None:
-        self._query = text
-        if self.view().isVisible():
-            self._apply_filter()
-        else:
-            self.showPopup()
-        self._set_edit_text(text)
+    def commit_query(self) -> None:
+        if self._query is None:
+            return
+        query = self._query
+        self._query = None
+        if not self._from_list:
+            best = self.best_match_row(query)
+            if best is not None:
+                self.setCurrentIndex(best)
+        self._from_list = False
+        self._sync_edit()
 
-    def _apply_filter(self) -> None:
-        query = (self._query or "").casefold()
-        view = self.view()
-        first = None
+    def best_match_row(self, query: str) -> int | None:
+        needle = query.strip().casefold()
+        if not needle:
+            return self.currentIndex()
+        exact: list[int] = []
+        prefix: list[int] = []
+        contains: list[int] = []
         for row in range(self.count()):
-            hidden = bool(query) and query not in self.itemText(row).casefold()
-            view.setRowHidden(row, hidden)
-            if not hidden and first is None:
-                first = row
-        if first is not None:
-            view.setCurrentIndex(self.model().index(first, self.modelColumn()))
+            label = self.itemText(row).casefold()
+            if label == needle:
+                exact.append(row)
+            elif label.startswith(needle):
+                prefix.append(row)
+            elif needle in label:
+                contains.append(row)
+        for group in (exact, prefix, contains):
+            if group:
+                return min(group, key=lambda row: (len(self.itemText(row)), row))
+        return None
+
+    def _on_text_edited(self, text: str) -> None:
+        self._from_list = False
+        self._query = text
+        self.query_changed.emit(text)
 
     def _sync_edit(self) -> None:
         index = self.currentIndex()
-        self._set_edit_text(self.itemText(index) if index >= 0 else "")
-
-    def _set_edit_text(self, text: str) -> None:
+        text = self.itemText(index) if index >= 0 else ""
         edit = self.lineEdit()
-        if edit.text() == text:
-            return
-        edit.setText(text)
+        if edit.text() != text:
+            edit.setText(text)
         edit.setCursorPosition(len(text))
 
 
@@ -227,6 +263,21 @@ class ResourcePicker(QWidget):
         self._combo = _ResourceComboBox()
         self._combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._combo.currentIndexChanged.connect(self._on_changed)
+        self._combo.query_changed.connect(self._on_query)
+        self._combo.popup_requested.connect(self._on_arrow)
+        self._combo.focus_left.connect(self._on_focus_left)
+
+        self._proxy = QSortFilterProxyModel(self)
+        self._proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)
+        self._proxy.setSourceModel(self._combo.model())
+        self._list = QListView()
+        self._list.setModel(self._proxy)
+        self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._list.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._list.clicked.connect(self._on_list_clicked)
+        self._list.hide()
 
         self._preview_area = QWidget()
         self._preview_layout = QVBoxLayout(self._preview_area)
@@ -237,6 +288,7 @@ class ResourcePicker(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._combo)
+        layout.addWidget(self._list)
         layout.addWidget(self._preview_area)
 
     def set_fetcher(self, fn: Fetcher) -> None:
@@ -246,7 +298,7 @@ class ResourcePicker(QWidget):
         current = self.value()
         self._resources = resources
         self._mime = mime
-        self._combo.hidePopup()
+        self._hide_list()
         self._combo.blockSignals(True)
         self._combo.clear()
         self._combo.addItem("— не выбран —", None)
@@ -283,6 +335,46 @@ class ResourcePicker(QWidget):
         QTimer.singleShot(12_000, signals.deleteLater)
         self._stop_audio()
         self._clear_preview()
+
+    def _on_query(self, text: str) -> None:
+        self._proxy.setFilterFixedString(text)
+        self._show_list()
+
+    def _on_arrow(self) -> None:
+        if self._list.isVisible() and self._combo._query is None:
+            self._hide_list()
+            return
+        self._show_list()
+
+    def _on_list_clicked(self, index) -> None:
+        source = self._proxy.mapToSource(index)
+        if source.isValid():
+            self._combo.pick_row(source.row())
+        self._hide_list()
+
+    def _on_focus_left(self) -> None:
+        QTimer.singleShot(0, self._commit_if_left)
+
+    def _commit_if_left(self) -> None:
+        focus = QApplication.focusWidget()
+        if focus is not None and (focus is self or self.isAncestorOf(focus)):
+            return
+        self._combo.commit_query()
+        self._hide_list()
+
+    def _show_list(self) -> None:
+        rows = max(1, min(_LIST_ROWS, self._proxy.rowCount()))
+        row_h = self._list.sizeHintForRow(0)
+        if row_h <= 0:
+            row_h = 28
+        self._list.setFixedHeight(rows * row_h + 4)
+        if self._proxy.rowCount() > 0:
+            self._list.setCurrentIndex(self._proxy.index(0, 0))
+        self._list.show()
+
+    def _hide_list(self) -> None:
+        self._proxy.setFilterFixedString("")
+        self._list.hide()
 
     def _on_changed(self) -> None:
         self.changed.emit(self.value())

@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import QDoubleSpinBox, QHBoxLayout, QLineEdit, QSpinBox, QT
 
 from app.domain.enums import MimeType
 from app.domain.models import Resource, RouteForm
-from app.presentation.widgets.common import LabeledField
+from app.presentation.widgets.common import LabeledField, NoWheelDoubleSpinBox
 from app.presentation.widgets.resource_picker import ResourcePicker
 
 
@@ -23,8 +23,8 @@ class RouteFormWidget(QWidget):
         self.distance_description = QLineEdit()
         self.duration_text = QLineEdit()
         self.duration_description = QLineEdit()
-        self.lat = QDoubleSpinBox()
-        self.lon = QDoubleSpinBox()
+        self.lat = NoWheelDoubleSpinBox()
+        self.lon = NoWheelDoubleSpinBox()
         self.zoom = QDoubleSpinBox()
         self.lat.setRange(-90, 90)
         self.lon.setRange(-180, 180)

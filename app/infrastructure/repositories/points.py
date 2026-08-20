@@ -32,6 +32,14 @@ class PointRepository(BaseRepository):
         if not payload.get("success"):
             raise ApiError(payload.get("message") or "Ошибка при сохранении точки")
 
+    def set_transcript_cues(self, point_id: int, cues: list[dict] | None, *, locale: str = "ru") -> None:
+        payload = self._client.put(
+            f"/admin/points/{point_id}/transcript-cues",
+            json={"cues": cues, "locale": locale},
+        )
+        if not payload.get("success"):
+            raise ApiError(payload.get("message") or "Не удалось сохранить таймкоды")
+
     def delete(self, point_id: int) -> None:
         payload = self._client.delete(f"/admin/points/{point_id}")
         if not payload.get("success"):

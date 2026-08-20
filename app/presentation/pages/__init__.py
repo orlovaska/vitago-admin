@@ -8,6 +8,7 @@ from app.presentation.pages.resources import ResourcesPage
 from app.presentation.pages.reviews import ReviewsPage
 from app.presentation.pages.secrets import SecretsPage
 from app.presentation.pages.server_resources import ServerResourcesPage
+from app.presentation.pages.transcript_align import TranscriptAlignPage
 
 __all__ = [
     "ApplicationPage",
@@ -20,4 +21,5 @@ __all__ = [
     "ReviewsPage",
     "SecretsPage",
     "ServerResourcesPage",
+    "TranscriptAlignPage",
 ]

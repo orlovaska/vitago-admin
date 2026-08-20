@@ -1,23 +1,38 @@
 from __future__ import annotations
 
-from PyQt5.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QLineEdit, QSpinBox, QTextEdit, QVBoxLayout, QWidget
+from pathlib import Path
+
+from PyQt5.QtWidgets import (
+    QCheckBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app.domain.enums import MimeType
 from app.domain.models import Point, Resource
-from app.presentation.widgets.common import LabeledField
+from app.presentation.widgets.common import GhostButton, LabeledField, NoWheelDoubleSpinBox, notify_error
 from app.presentation.widgets.resource_picker import ResourcePicker
+from app.services.transcript_align import parse_cues_json
 
 
 class PointFormWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._cues: list[dict] | None = None
+
         self.name = QLineEdit()
         self.description = QTextEdit()
         self.description.setMaximumHeight(80)
         self.address = QLineEdit()
         self.working_hours = QLineEdit()
-        self.lat = QDoubleSpinBox()
-        self.lon = QDoubleSpinBox()
+        self.lat = NoWheelDoubleSpinBox()
+        self.lon = NoWheelDoubleSpinBox()
         self.lat.setRange(-90, 90)
         self.lon.setRange(-180, 180)
         self.lat.setDecimals(6)
@@ -36,6 +51,18 @@ class PointFormWidget(QWidget):
         self.marker = ResourcePicker()
         self.locked = ResourcePicker()
         self.audio = ResourcePicker()
+
+        self.transcript = QTextEdit()
+        self.transcript.setPlaceholderText("Текст, который звучит в аудио (не таймкоды)")
+        self.transcript.setMaximumHeight(120)
+        self.cues_label = QLabel("Таймкоды: нет")
+        self.cues_label.setObjectName("muted")
+        load_transcript = GhostButton("Загрузить текст…")
+        load_cues = GhostButton("Загрузить JSON таймкодов…")
+        clear_cues = GhostButton("Очистить таймкоды")
+        load_transcript.clicked.connect(self._load_transcript_file)
+        load_cues.clicked.connect(self._load_cues_file)
+        clear_cues.clicked.connect(self._clear_cues)
 
         layout = QVBoxLayout(self)
         layout.addWidget(LabeledField("Название точки", self.name))
@@ -58,6 +85,14 @@ class PointFormWidget(QWidget):
         layout.addWidget(LabeledField("Маркер на карте", self.marker))
         layout.addWidget(LabeledField("Заблокированный маркер", self.locked))
         layout.addWidget(LabeledField("Аудио-ресурс", self.audio))
+        layout.addWidget(LabeledField("Транскрипт аудио", self.transcript))
+        cues_row = QHBoxLayout()
+        cues_row.addWidget(load_transcript)
+        cues_row.addWidget(load_cues)
+        cues_row.addWidget(clear_cues)
+        cues_row.addStretch()
+        layout.addLayout(cues_row)
+        layout.addWidget(self.cues_label)
 
     def set_resources(self, resources: list[Resource]) -> None:
         self.image.set_resources(resources, MimeType.PNG)
@@ -82,6 +117,9 @@ class PointFormWidget(QWidget):
         self.marker.set_value(point.marker_resource_id)
         self.locked.set_value(point.locked_marker_resource_id)
         self.audio.set_value(point.audio_resource_id)
+        self.transcript.setPlainText(point.transcript or "")
+        self._cues = list(point.transcript_cues) if point.transcript_cues is not None else None
+        self._refresh_cues_label()
 
     def to_point(self, point_id: int | None = None, route_id: int | None = None) -> Point:
         return Point(
@@ -103,6 +141,8 @@ class PointFormWidget(QWidget):
             marker_resource_id=self.marker.value(),
             locked_marker_resource_id=self.locked.value(),
             audio_resource_id=self.audio.value(),
+            transcript=self.transcript.toPlainText().strip() or None,
+            transcript_cues=tuple(self._cues) if self._cues is not None else None,
         )
 
     def errors(self) -> list[str]:
@@ -128,3 +168,37 @@ class PointFormWidget(QWidget):
         if not self.audio.value():
             errors.append("Аудио-ресурс обязателен")
         return errors
+
+    def _load_transcript_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Транскрипт", "", "Текст (*.txt);;Все файлы (*.*)")
+        if not path:
+            return
+        try:
+            text = Path(path).read_text(encoding="utf-8-sig")
+        except OSError as exc:
+            notify_error(self, str(exc))
+            return
+        self.transcript.setPlainText(text)
+
+    def _load_cues_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "JSON таймкодов", "", "JSON (*.json);;Все файлы (*.*)")
+        if not path:
+            return
+        try:
+            raw = Path(path).read_text(encoding="utf-8-sig")
+            cues = parse_cues_json(raw)
+        except Exception as exc:  # noqa: BLE001
+            notify_error(self, str(exc))
+            return
+        self._cues = cues
+        self._refresh_cues_label()
+
+    def _clear_cues(self) -> None:
+        self._cues = None
+        self._refresh_cues_label()
+
+    def _refresh_cues_label(self) -> None:
+        if self._cues is None:
+            self.cues_label.setText("Таймкоды: нет")
+            return
+        self.cues_label.setText(f"Таймкоды: {len(self._cues)} слов")

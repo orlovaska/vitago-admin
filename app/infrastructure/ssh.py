@@ -35,6 +35,11 @@ class SshClient:
         args = [self._bin("scp"), *self._opts(), str(local), f"{self.target}:{remote_path}"]
         self._exec(args, timeout)
 
+    def download(self, remote_path: str, local: Path, *, timeout: int = 30) -> None:
+        local.parent.mkdir(parents=True, exist_ok=True)
+        args = [self._bin("scp"), *self._opts(), f"{self.target}:{remote_path}", str(local)]
+        self._exec(args, timeout)
+
     def _opts(self) -> list[str]:
         return [
             "-o",

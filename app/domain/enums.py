@@ -72,3 +72,4 @@ class PageId(str, Enum):
     SERVER_RESOURCES = "server_resources"
     PROMOCODES = "promocodes"
     ENV = "env"
+    TRANSCRIPT_ALIGN = "transcript_align"

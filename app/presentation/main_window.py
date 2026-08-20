@@ -28,6 +28,7 @@ from app.presentation.pages.resources import ResourcesPage
 from app.presentation.pages.reviews import ReviewsPage
 from app.presentation.pages.secrets import SecretsPage
 from app.presentation.pages.server_resources import ServerResourcesPage
+from app.presentation.pages.transcript_align import TranscriptAlignPage
 from app.presentation.theme.apply import apply_appearance
 from app.presentation.theme.scale import (
     DEFAULT_UI_SCALE,
@@ -47,6 +48,7 @@ NAV_ITEMS = (
     (PageId.SERVER_RESOURCES, "Ресурсы на сервере"),
     (PageId.REVIEWS, "Отзывы"),
     (PageId.GENERATE_ROUTE, "GeoJSON"),
+    (PageId.TRANSCRIPT_ALIGN, "Транскрипция"),
     (PageId.SECRETS, "Секреты сервера"),
     (PageId.ENV, "Переменные .env"),
 )
@@ -75,6 +77,7 @@ class MainWindow(QMainWindow):
             PageId.SERVER_RESOURCES: ServerResourcesPage(container, self.navigator),
             PageId.REVIEWS: ReviewsPage(container, self.navigator),
             PageId.GENERATE_ROUTE: GenerateRoutePage(container, self.navigator),
+            PageId.TRANSCRIPT_ALIGN: TranscriptAlignPage(container, self.navigator),
             PageId.SECRETS: SecretsPage(container, self.navigator),
             PageId.ENV: EnvPage(container, self.navigator),
         }
@@ -135,9 +138,19 @@ class MainWindow(QMainWindow):
         self._bind_zoom_shortcuts()
         self._apply_theme()
         if self.container.session.is_authenticated:
-            self.navigator.go(PageId.DASHBOARD)
+            self.navigator.go(self._restore_page())
         else:
             self.navigator.go(PageId.LOGIN)
+
+    def _restore_page(self) -> PageId:
+        raw = str(self._settings.value("lastPage", PageId.DASHBOARD.value) or PageId.DASHBOARD.value)
+        try:
+            page = PageId(raw)
+        except ValueError:
+            return PageId.DASHBOARD
+        if page is PageId.LOGIN or page not in self._index:
+            return PageId.DASHBOARD
+        return page
 
     def _on_navigate(self, command: NavigateCommand) -> None:
         if command.page_id is not PageId.LOGIN and not self.container.session.is_authenticated:
@@ -147,6 +160,8 @@ class MainWindow(QMainWindow):
         self.sidebar.setVisible(command.page_id is not PageId.LOGIN)
         self.stack.setCurrentIndex(self._index[command.page_id])
         self.pages[command.page_id].enter(command.payload)
+        if command.page_id is not PageId.LOGIN:
+            self._settings.setValue("lastPage", command.page_id.value)
         for row in range(self.nav.count()):
             item = self.nav.item(row)
             if item.data(Qt.UserRole) is command.page_id:

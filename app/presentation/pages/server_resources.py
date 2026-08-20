@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from PyQt5.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QWidget
@@ -77,19 +78,20 @@ class ServerResourcesPage(BasePage):
 
     def _backup(self) -> None:
         self.backup_button.setEnabled(False)
-        self.backup_label.setText("Создаётся архив…")
+        self.backup_label.setText("Создание и скачивание архива…")
         self.tasks.submit(
-            self.container.server_resources.create_backup,
-            self._on_backup,
+            self.container.server_resources.create_backup_and_download,
+            self._on_backup_downloaded,
             self._on_backup_error,
-            busy_text="Создание архива по SSH…",
+            busy_text="Бэкап и скачивание…",
         )
 
-    def _on_backup(self, result: tuple[str, str]) -> None:
-        note, _path = result
+    def _on_backup_downloaded(self, result: tuple[str, Path]) -> None:
+        note, local = result
         self.backup_button.setEnabled(True)
-        self.backup_label.setText(note)
-        notify_info(self, note)
+        text = f"{note}. Сохранён на ПК: {local}"
+        self.backup_label.setText(text)
+        notify_info(self, text)
 
     def _on_backup_error(self, message: str) -> None:
         self.backup_button.setEnabled(True)

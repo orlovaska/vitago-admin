@@ -3,6 +3,7 @@ from __future__ import annotations
 from PyQt5.QtCore import QEvent, QObject, QTimer, Qt
 from PyQt5.QtWidgets import (
     QCheckBox,
+    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -280,6 +281,13 @@ class LabeledField(QWidget):
         else:
             self.helper.hide()
         widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+
+class NoWheelDoubleSpinBox(QDoubleSpinBox):
+    """Значение меняется только вводом или кнопками, не колесом мыши."""
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
 
 
 class BusyOverlay(QWidget):
