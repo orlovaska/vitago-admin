@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from PyQt5.QtGui import QGuiApplication
 
 from app.core.container import Container
@@ -187,7 +187,7 @@ class ApplicationPage(ScrollPage):
 
     def _version_card(self, version: AppVersion) -> Card:
         card = Card(object_name="appCard")
-        card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        card.setFixedWidth(260)
         title = QLabel(version.label)
         title.setObjectName("sectionTitle")
         card.body.addWidget(title)
@@ -199,7 +199,7 @@ class ApplicationPage(ScrollPage):
             card.body.addWidget(notes)
         if version.created_at:
             card.body.addWidget(QLabel(version.created_at))
-        delete = GhostButton("Удалить")
+        delete = DangerButton("Удалить")
         delete.clicked.connect(
             lambda _=False, vid=version.id, label=version.label: self._delete_version(vid, label)
         )

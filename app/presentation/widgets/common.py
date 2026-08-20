@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, QTimer, QEvent, QObject
+from PyQt5.QtCore import QEvent, QObject, QTimer, Qt
 from PyQt5.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -66,7 +66,6 @@ class HCarousel(QWidget):
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scroll.setMinimumHeight(180)
         self.scroll.viewport().installEventFilter(self)
 
         self._inner = QWidget()
@@ -84,6 +83,10 @@ class HCarousel(QWidget):
         layout.addWidget(self.scroll, 1)
         layout.addWidget(self._next)
 
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        self._schedule_fit()
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # type: ignore[override]
         if watched is self.scroll.viewport() and event.type() == QEvent.Wheel:
             delta = event.angleDelta().y() or event.angleDelta().x()
@@ -98,10 +101,28 @@ class HCarousel(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
+        self._schedule_fit()
 
     def add_widget(self, widget: QWidget) -> None:
-        widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Minimum)
         self._cards.insertWidget(self._cards.count() - 1, widget)
+        self._schedule_fit()
+
+    def _schedule_fit(self) -> None:
+        QTimer.singleShot(0, self._fit_height)
+
+    def _fit_height(self) -> None:
+        content_h = 0
+        for index in range(self._cards.count()):
+            widget = self._cards.itemAt(index).widget()
+            if widget is not None:
+                widget.adjustSize()
+                content_h = max(content_h, widget.sizeHint().height())
+        if content_h <= 0:
+            content_h = 40
+        bar_h = self.scroll.horizontalScrollBar().sizeHint().height()
+        self.scroll.setFixedHeight(content_h + bar_h)
+        self.updateGeometry()
 
     def _nudge(self, direction: int) -> None:
         bar = self.scroll.horizontalScrollBar()
