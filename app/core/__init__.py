@@ -1,5 +1,3 @@
-from app.core.config import Settings
-from app.core.exceptions import ApiError, AuthError, ValidationError
-from app.core.session import AuthSession
+"""Ядро приложения. Импортируйте подмодули явно (session тянет PyQt5)."""
 
-__all__ = ["Settings", "ApiError", "AuthError", "ValidationError", "AuthSession"]
+__all__: list[str] = []

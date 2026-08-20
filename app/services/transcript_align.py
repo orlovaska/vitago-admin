@@ -102,11 +102,17 @@ def _quiet_huggingface() -> None:
 
 
 def ensure_ffmpeg() -> None:
+    """Путь к ffmpeg для утилит. PATH не меняем — иначе PyAV/Whisper падают на Windows."""
     import os
     import shutil
     import sys
 
-    if shutil.which("ffmpeg"):
+    current = os.environ.get("IMAGEIO_FFMPEG_EXE")
+    if current and Path(current).is_file():
+        return
+    which = shutil.which("ffmpeg")
+    if which:
+        os.environ["IMAGEIO_FFMPEG_EXE"] = which
         return
     candidates: list[Path] = []
     if getattr(sys, "frozen", False):
@@ -119,10 +125,18 @@ def ensure_ffmpeg() -> None:
         pass
     for exe in candidates:
         if exe.is_file():
-            os.environ["PATH"] = str(exe.parent) + os.pathsep + os.environ.get("PATH", "")
             os.environ["IMAGEIO_FFMPEG_EXE"] = str(exe)
             return
 
+
+def _prepare_native_runtime() -> None:
+    import os
+
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+    _quiet_huggingface()
+    # ffmpeg не кладём в PATH перед загрузкой модели.
 
 
 def _proportional(tokens: list[str], start: float, end: float) -> list[Cue]:
@@ -203,16 +217,6 @@ def _finalize_cues(cues: list[Cue]) -> list[Cue]:
     return result
 
 
-def _prepare_native_runtime() -> None:
-    import os
-
-    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-    os.environ.setdefault("OMP_NUM_THREADS", "1")
-    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
-    _quiet_huggingface()
-    ensure_ffmpeg()
-
-
 def _load_align_model(model_name: str) -> Any:
     from faster_whisper import WhisperModel
 
@@ -221,7 +225,7 @@ def _load_align_model(model_name: str) -> Any:
         return WhisperModel(
             model_name,
             device="cpu",
-            compute_type="float32",
+            compute_type="int8",
             cpu_threads=1,
             num_workers=1,
         )
@@ -269,7 +273,8 @@ def align_transcript_to_cues(
     if not tokens:
         raise AppError("Транскрипт пустой")
 
-    ensure_ffmpeg()
+    _quiet_huggingface()
+    # Whisper нельзя грузить в GUI-процессе с PyQt — только в --align-worker.
     align_model = model if model is not None else _load_align_model(model_name)
     aligned = _words_from_faster_whisper(align_model, audio_path, language=language, transcript=transcript)
     if not aligned:
@@ -459,7 +464,7 @@ def run_align_worker(work_dir: Path | str) -> int:
             handle.flush()
 
     try:
-        job = json.loads((work / "job.json").read_text(encoding="utf-8"))
+        job = json.loads((work / "job.json").read_text(encoding="utf-8-sig"))
         pairs = [
             TranscriptPair(stem=str(item["stem"]), audio=Path(item["audio"]), text=Path(item["text"]))
             for item in job.get("pairs") or []
@@ -546,10 +551,13 @@ def align_batch_isolated(
         encoding="utf-8",
     )
 
+    worker_log = work / "worker.log"
     if getattr(sys, "frozen", False):
         command = [sys.executable, "--align-worker", str(work)]
+        cwd = str(Path(sys.executable).resolve().parent)
     else:
         command = [sys.executable, str(project_root() / "main.py"), "--align-worker", str(work)]
+        cwd = str(project_root())
 
     creationflags = 0
     if sys.platform == "win32":
@@ -570,12 +578,14 @@ def align_batch_isolated(
 
     proc: subprocess.Popen[str] | None = None
     code = 1
+    crash_detail = ""
+    log_handle = worker_log.open("w", encoding="utf-8")
     try:
         proc = subprocess.Popen(
             command,
-            cwd=str(project_root()),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            cwd=cwd,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
             creationflags=creationflags,
         )
         done = 0
@@ -585,18 +595,27 @@ def align_batch_isolated(
         done = _drain_progress(progress_path, done, capture)
         code = int(proc.returncode or 0)
     finally:
+        log_handle.close()
         if proc is not None and proc.poll() is None:
             proc.kill()
+        if worker_log.is_file():
+            try:
+                crash_detail = worker_log.read_text(encoding="utf-8", errors="replace").strip()
+            except OSError:
+                crash_detail = ""
         shutil.rmtree(work, ignore_errors=True)
 
     if code != 0 and on_progress is not None:
+        message = "Процесс распознавания аварийно завершился. Уже сохранённые JSON рядом с MP3 остались."
+        if crash_detail:
+            message = f"{message}\n{crash_detail[-1000:]}"
         on_progress(
             {
                 "type": "err",
                 "stem": "*",
                 "index": 0,
                 "total": len(pairs),
-                "error": "Процесс распознавания аварийно завершился. Уже сохранённые JSON рядом с MP3 остались.",
+                "error": message,
             }
         )
 

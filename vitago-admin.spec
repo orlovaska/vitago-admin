@@ -52,7 +52,10 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[str(ROOT / "packaging" / "pyi_rth_ffmpeg.py")],
+    runtime_hooks=[
+        str(ROOT / "packaging" / "pyi_rth_align_worker_guard.py"),
+        str(ROOT / "packaging" / "pyi_rth_ffmpeg.py"),
+    ],
     excludes=[
         "tkinter",
         "unittest",
