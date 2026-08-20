@@ -1,12 +1,27 @@
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from app.presentation.theme.palette import Palette
 from app.presentation.theme.scale import DEFAULT_UI_SCALE, scale_px
+
+
+def _combo_arrow_url(color: str) -> str:
+    svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
+        f"<path fill='{color}' d='M3 5.5h10L8 12z'/></svg>"
+    )
+    path = Path(tempfile.gettempdir()) / f"vitago-admin-combo-arrow-{color.lstrip('#')}.svg"
+    path.write_text(svg, encoding="utf-8")
+    return path.as_posix()
 
 
 def build_stylesheet(palette: Palette, ui_scale: int = DEFAULT_UI_SCALE) -> str:
     def px(base: int) -> str:
         return f"{scale_px(base, ui_scale)}px"
+
+    combo_arrow = _combo_arrow_url(palette.muted)
 
     return f"""
     QWidget {{
@@ -194,6 +209,24 @@ def build_stylesheet(palette: Palette, ui_scale: int = DEFAULT_UI_SCALE) -> str:
     }}
     QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus {{
         border: 1px solid {palette.accent};
+    }}
+    QComboBox::drop-down {{
+        subcontrol-origin: border;
+        subcontrol-position: top right;
+        width: {px(28)};
+        border: none;
+        border-left: 1px solid {palette.border};
+        background: {palette.surface_alt};
+        border-top-right-radius: {px(10)};
+        border-bottom-right-radius: {px(10)};
+    }}
+    QComboBox::drop-down:hover {{
+        background: {palette.accent_soft};
+    }}
+    QComboBox::down-arrow {{
+        image: url("{combo_arrow}");
+        width: {px(12)};
+        height: {px(12)};
     }}
     QComboBox QAbstractItemView {{
         background: {palette.surface};

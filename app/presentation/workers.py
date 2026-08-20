@@ -6,6 +6,9 @@ from typing import Any
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
 from app.core.exceptions import AppError
+from app.core.log import get_logger
+
+_LINGERING: list[tuple[QThread, TaskWorker]] = []
 
 
 class TaskWorker(QObject):
@@ -23,8 +26,10 @@ class TaskWorker(QObject):
             result = self._fn(*self._args, **self._kwargs)
             self.finished.emit(result)
         except AppError as exc:
+            get_logger(__name__).warning("%s", exc)
             self.failed.emit(str(exc))
         except Exception as exc:  # noqa: BLE001
+            get_logger(__name__).exception("Фоновая задача завершилась с ошибкой")
             self.failed.emit(str(exc))
 
 
@@ -36,6 +41,22 @@ class TaskRunner(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._jobs: list[tuple[QThread, TaskWorker]] = []
+        self._alive = True
+        self.destroyed.connect(self.abandon)
+
+    def abandon(self, *_args: Any) -> None:
+        self._alive = False
+        for thread, worker in list(self._jobs):
+            try:
+                worker.finished.disconnect()
+                worker.failed.disconnect()
+            except TypeError:
+                pass
+            worker.finished.connect(thread.quit)
+            worker.failed.connect(thread.quit)
+            thread.finished.connect(lambda _=None, t=thread, w=worker: _release_lingering(t, w))
+            _LINGERING.append((thread, worker))
+        self._jobs.clear()
 
     def submit(
         self,
@@ -46,13 +67,12 @@ class TaskRunner(QObject):
         busy_text: str = "Загрузка с сервера…",
         **kwargs: Any,
     ) -> None:
-        thread = QThread(self)
+        thread = QThread()
         worker = TaskWorker(fn, *args, **kwargs)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.finished.connect(on_success)
-        if on_error:
-            worker.failed.connect(on_error)
+        worker.finished.connect(lambda result: self._emit_ok(on_success, result))
+        worker.failed.connect(lambda msg: self._emit_err(on_error, msg))
         worker.finished.connect(thread.quit)
         worker.failed.connect(thread.quit)
         thread.finished.connect(lambda: self._cleanup(thread, worker))
@@ -60,9 +80,23 @@ class TaskRunner(QObject):
         self.busy_changed.emit(True, busy_text)
         thread.start()
 
+    def _emit_ok(self, callback: Callable[[Any], None], result: Any) -> None:
+        if self._alive:
+            callback(result)
+
+    def _emit_err(self, callback: Callable[[str], None] | None, message: str) -> None:
+        if self._alive and callback is not None:
+            callback(message)
+
     def _cleanup(self, thread: QThread, worker: TaskWorker) -> None:
         self._jobs = [job for job in self._jobs if job[0] is not thread]
         worker.deleteLater()
         thread.deleteLater()
-        if not self._jobs:
+        if self._alive and not self._jobs:
             self.busy_changed.emit(False, "")
+
+
+def _release_lingering(thread: QThread, worker: TaskWorker) -> None:
+    _LINGERING[:] = [job for job in _LINGERING if job[0] is not thread]
+    worker.deleteLater()
+    thread.deleteLater()

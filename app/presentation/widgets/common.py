@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from app.core.log import log_error, log_warning
+
 
 def hbox(*widgets: QWidget, spacing: int = 8, stretch: bool = True) -> QHBoxLayout:
     layout = QHBoxLayout()
@@ -185,6 +187,8 @@ class InlineNotice(QLabel):
         self.hide()
 
     def show_warning(self, text: str) -> None:
+        if text:
+            log_warning(text)
         self.setText(text)
         self.setVisible(bool(text))
 
@@ -228,6 +232,7 @@ def confirm_delete(parent: QWidget, text: str) -> bool:
 
 
 def notify_error(parent: QWidget, message: str) -> None:
+    log_error(message)
     QMessageBox.critical(parent, "Ошибка", message)
 
 

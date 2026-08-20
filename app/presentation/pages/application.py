@@ -30,6 +30,7 @@ from app.presentation.widgets.common import (
     notify_error,
     notify_info,
 )
+from app.presentation.widgets.resource_picker import ResourcePicker
 from app.services.points_validator import to_import_payload, validate_points_json
 
 
@@ -269,15 +270,22 @@ class ApplicationPage(ScrollPage):
             switch.setChecked(not value)
             switch.blockSignals(False)
             return
-        try:
-            self.container.applications.update_payment_flag(self._app_id, field, value)
+        app_id = self._app_id
+
+        def work() -> None:
+            self.container.applications.update_payment_flag(app_id, field, value)
+
+        def ok(_result) -> None:
             notify_info(self, "Флаги оплаты успешно обновлены")
-            self.on_enter({"application_id": self._app_id})
-        except Exception as exc:  # noqa: BLE001
+            self.on_enter({"application_id": app_id})
+
+        def err(message: str) -> None:
             switch.blockSignals(True)
             switch.setChecked(not value)
             switch.blockSignals(False)
-            notify_error(self, str(exc))
+            notify_error(self, message)
+
+        self.tasks.submit(work, ok, err, busy_text="Сохранение…")
 
     def _edit_resources(self) -> None:
         if not self._application:
@@ -312,22 +320,25 @@ class ApplicationPage(ScrollPage):
         buttons.rejected.connect(editor.reject)
 
         def save() -> None:
-            try:
-                self.container.applications.update_resources(
-                    self._application.id,
-                    {
-                        "termsResourceId": form.terms.value(),
-                        "accRecoveryImageResourceId": form.acc_recovery.value(),
-                        "gifResourceId": form.gif.value(),
-                    },
-                )
+            app_id = self._application.id
+            payload = {
+                "termsResourceId": form.terms.value(),
+                "accRecoveryImageResourceId": form.acc_recovery.value(),
+                "gifResourceId": form.gif.value(),
+            }
+
+            def work() -> None:
+                self.container.applications.update_resources(app_id, payload)
+
+            def ok(_result) -> None:
                 editor.accept()
                 notify_info(self, "Приложение успешно обновлено")
                 self.on_enter({"application_id": self._app_id})
-            except Exception as exc:  # noqa: BLE001
-                notify_error(self, str(exc))
+
+            self.tasks.submit(work, ok, lambda msg: notify_error(editor, msg), busy_text="Сохранение…")
 
         buttons.accepted.connect(save)
+        editor.finished.connect(lambda *_: [picker.shutdown() for picker in form.findChildren(ResourcePicker)])
         editor.exec_()
 
     def _delete_app(self) -> None:
@@ -335,12 +346,17 @@ class ApplicationPage(ScrollPage):
             return
         if not confirm_delete(self, f"Удалить приложение {self._application.bundle_id}?"):
             return
-        try:
-            self.container.applications.delete(self._application.id)
-            notify_info(self, "Приложение успешно удалено")
-            self.navigator.go(PageId.DASHBOARD)
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        app_id = self._application.id
+        self.tasks.submit(
+            lambda: self.container.applications.delete(app_id),
+            lambda _: self._after_app_deleted(),
+            lambda msg: notify_error(self, msg),
+            busy_text="Удаление…",
+        )
+
+    def _after_app_deleted(self) -> None:
+        notify_info(self, "Приложение успешно удалено")
+        self.navigator.go(PageId.DASHBOARD)
 
     def _add_version(self) -> None:
         versions = self._application.versions if self._application else ()
@@ -351,12 +367,12 @@ class ApplicationPage(ScrollPage):
     def _delete_version(self, version_id: int, label: str) -> None:
         if not confirm_delete(self, f"Удалить версию {label}?"):
             return
-        try:
-            self.container.applications.delete_version(self._app_id, version_id)
-            notify_info(self, "Версия успешно удалена")
-            self.on_enter({"application_id": self._app_id})
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        self.tasks.submit(
+            lambda: self.container.applications.delete_version(self._app_id, version_id),
+            lambda _: self._reload_ok("Версия успешно удалена"),
+            lambda msg: notify_error(self, msg),
+            busy_text="Удаление…",
+        )
 
     def _add_route(self) -> None:
         dialog = RouteDialog(self.container, self._resources, self._app_id, parent=self)
@@ -371,12 +387,12 @@ class ApplicationPage(ScrollPage):
     def _delete_route(self, route_id: int, name: str) -> None:
         if not confirm_delete(self, f"Удалить маршрут {name}?"):
             return
-        try:
-            self.container.routes.delete(route_id)
-            notify_info(self, "Маршрут успешно удален")
-            self.on_enter({"application_id": self._app_id})
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        self.tasks.submit(
+            lambda: self.container.routes.delete(route_id),
+            lambda _: self._reload_ok("Маршрут успешно удален"),
+            lambda msg: notify_error(self, msg),
+            busy_text="Удаление…",
+        )
 
     def _import_points(self, route_id: int) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Импорт точек", "", "JSON (*.json)")
@@ -393,12 +409,13 @@ class ApplicationPage(ScrollPage):
             return
         if result.unknown_fields:
             notify_info(self, "Неизвестные поля будут проигнорированы: " + ", ".join(result.unknown_fields))
-        try:
-            count = self.container.points.import_from_json(route_id, [to_import_payload(item) for item in data])
-            notify_info(self, f"Успешно импортировано точек: {count}")
-            self.on_enter({"application_id": self._app_id})
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        payload = [to_import_payload(item) for item in data]
+        self.tasks.submit(
+            lambda: self.container.points.import_from_json(route_id, payload),
+            lambda count: self._reload_ok(f"Успешно импортировано точек: {count}"),
+            lambda msg: notify_error(self, msg),
+            busy_text="Импорт точек…",
+        )
 
     def _edit_point(self, route_id: int, point=None) -> None:
         dialog = PointDialog(self.container, self._resources, route_id, point=point, parent=self)
@@ -410,9 +427,13 @@ class ApplicationPage(ScrollPage):
             return
         if not confirm_delete(self, f"Удалить точку {point.name}?"):
             return
-        try:
-            self.container.points.delete(point.id)
-            notify_info(self, "Точка успешно удалена")
-            self.on_enter({"application_id": self._app_id})
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        self.tasks.submit(
+            lambda: self.container.points.delete(point.id),
+            lambda _: self._reload_ok("Точка успешно удалена"),
+            lambda msg: notify_error(self, msg),
+            busy_text="Удаление…",
+        )
+
+    def _reload_ok(self, message: str) -> None:
+        notify_info(self, message)
+        self.on_enter({"application_id": self._app_id})

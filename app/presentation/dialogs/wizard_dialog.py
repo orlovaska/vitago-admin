@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from PyQt5.QtWidgets import (
-    QDialog,
     QDialogButtonBox,
     QFormLayout,
     QLabel,
@@ -16,13 +15,14 @@ from PyQt5.QtWidgets import (
 from app.core.container import Container
 from app.domain.enums import AppStore
 from app.domain.models import Resource
+from app.presentation.dialogs.job_dialog import JobDialog
 from app.presentation.forms.application_form import ApplicationForm
 from app.presentation.forms.point_form import PointFormWidget
 from app.presentation.forms.route_form import RouteFormWidget
 from app.presentation.widgets.common import PrimaryButton, notify_error, notify_info
 
 
-class CloneWizardDialog(QDialog):
+class CloneWizardDialog(JobDialog):
     """Шаблонный метод: шаги создания клона приложения."""
 
     def __init__(self, container: Container, resources: list[Resource], parent: QWidget | None = None) -> None:
@@ -82,58 +82,74 @@ class CloneWizardDialog(QDialog):
         scroll.setWidget(widget)
         return scroll
 
+    def _advance(self) -> None:
+        self._step += 1
+        self.stack.setCurrentIndex(self._step)
+        titles = ("приложение", "маршрут", "первая точка", "версия")
+        self.hint.setText(f"Шаг {self._step + 1} из 4: {titles[self._step]}")
+        if self._step == 3:
+            self.next_button.setText("Завершить")
+
     def _next(self) -> None:
-        try:
-            if self._step == 0:
-                errors = self.app_form.errors()
-                if errors:
-                    notify_error(self, "Заполните обязательные поля: " + ", ".join(errors))
-                    return
-                created = self._container.applications.create(self.app_form.to_payload())
-                self._app_id = created.id
-                notify_info(self, "Приложение успешно создано")
-            elif self._step == 1:
-                errors = self.route_form.errors()
-                if errors:
-                    notify_error(self, "Заполните обязательные поля: " + ", ".join(errors))
-                    return
-                if not self._app_id:
-                    notify_error(self, "ID приложения не найден")
-                    return
-                self._route_id = self._container.routes.create(self._app_id, self.route_form.to_form())
-                notify_info(self, "Маршрут успешно создан")
-            elif self._step == 2:
-                errors = self.point_form.errors()
-                if errors:
-                    notify_error(self, "\n".join(errors))
-                    return
-                if not self._route_id:
-                    notify_error(self, "ID маршрута не найден")
-                    return
-                self._container.points.create(self._route_id, self.point_form.to_point(route_id=self._route_id))
-                notify_info(self, "Точка успешно создана")
-            else:
-                if not self._app_id:
-                    notify_error(self, "ID приложения не найден")
-                    return
-                notes = self.release_notes.text().strip() or None
-                for store in AppStore:
-                    self._container.applications.create_version(
-                        self._app_id,
-                        self.major.value(),
-                        self.minor.value(),
-                        self.patch.value(),
-                        notes,
-                        store,
-                    )
-                notify_info(self, "Клон успешно создан")
-                self.accept()
+        if self._step == 0:
+            errors = self.app_form.errors()
+            if errors:
+                notify_error(self, "Заполните обязательные поля: " + ", ".join(errors))
                 return
-            self._step += 1
-            self.stack.setCurrentIndex(self._step)
-            titles = ("приложение", "маршрут", "первая точка", "версия")
-            self.hint.setText(f"Шаг {self._step + 1} из 4: {titles[self._step]}")
-            if self._step == 3:
-                self.next_button.setText("Завершить")
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+            payload = self.app_form.to_payload()
+            self.run_job(lambda: self._container.applications.create(payload), self._on_app_created)
+            return
+        if self._step == 1:
+            errors = self.route_form.errors()
+            if errors:
+                notify_error(self, "Заполните обязательные поля: " + ", ".join(errors))
+                return
+            if not self._app_id:
+                notify_error(self, "ID приложения не найден")
+                return
+            app_id = self._app_id
+            form = self.route_form.to_form()
+            self.run_job(lambda: self._container.routes.create(app_id, form), self._on_route_created)
+            return
+        if self._step == 2:
+            errors = self.point_form.errors()
+            if errors:
+                notify_error(self, "\n".join(errors))
+                return
+            if not self._route_id:
+                notify_error(self, "ID маршрута не найден")
+                return
+            route_id = self._route_id
+            point = self.point_form.to_point(route_id=route_id)
+            self.run_job(lambda: self._container.points.create(route_id, point), self._on_point_created)
+            return
+        if not self._app_id:
+            notify_error(self, "ID приложения не найден")
+            return
+        app_id = self._app_id
+        notes = self.release_notes.text().strip() or None
+        major, minor, patch = self.major.value(), self.minor.value(), self.patch.value()
+
+        def work() -> None:
+            for store in AppStore:
+                self._container.applications.create_version(app_id, major, minor, patch, notes, store)
+
+        self.run_job(work, self._on_clone_done)
+
+    def _on_app_created(self, created) -> None:
+        self._app_id = created.id
+        notify_info(self, "Приложение успешно создано")
+        self._advance()
+
+    def _on_route_created(self, route_id: int) -> None:
+        self._route_id = route_id
+        notify_info(self, "Маршрут успешно создан")
+        self._advance()
+
+    def _on_point_created(self, _result) -> None:
+        notify_info(self, "Точка успешно создана")
+        self._advance()
+
+    def _on_clone_done(self, _result) -> None:
+        notify_info(self, "Клон успешно создан")
+        self.accept()

@@ -5,6 +5,7 @@ from ctypes import byref, c_int, sizeof
 
 from PyQt5.QtWidgets import QWidget
 
+from app.core.log import get_logger
 from app.domain.enums import ThemeMode
 from app.presentation.theme.palette import Palette
 
@@ -34,6 +35,7 @@ def apply_title_bar(window: QWidget, mode: ThemeMode, palette: Palette) -> None:
         _set_attr(hwnd, DWMWA_CAPTION_COLOR, caption)
         _set_attr(hwnd, DWMWA_TEXT_COLOR, text)
     except OSError:
+        get_logger(__name__).warning("Не удалось применить цвет заголовка окна", exc_info=True)
         return
 
 

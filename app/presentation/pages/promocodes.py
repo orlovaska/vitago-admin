@@ -200,11 +200,12 @@ class PromocodesPage(BasePage):
         if promo is None:
             notify_error(self, "Выберите промокод")
             return
-        try:
-            self.container.promocodes.regenerate_token(promo.id)
-            self._reload_promos()
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        self.tasks.submit(
+            lambda: self.container.promocodes.regenerate_token(promo.id),
+            lambda _: self._reload_promos(),
+            lambda msg: notify_error(self, msg),
+            busy_text="Обновление токена…",
+        )
 
     def _delete(self) -> None:
         promo = self._selected_promo()
@@ -213,8 +214,9 @@ class PromocodesPage(BasePage):
             return
         if not confirm_delete(self, f"Удалить промокод {promo.code}?"):
             return
-        try:
-            self.container.promocodes.delete(promo.id)
-            self._reload_promos()
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        self.tasks.submit(
+            lambda: self.container.promocodes.delete(promo.id),
+            lambda _: self._reload_promos(),
+            lambda msg: notify_error(self, msg),
+            busy_text="Удаление…",
+        )

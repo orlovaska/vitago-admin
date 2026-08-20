@@ -6,6 +6,7 @@ from typing import Any
 from PyQt5.QtWidgets import QCheckBox, QFileDialog, QHBoxLayout, QWidget
 
 from app.core.container import Container
+from app.core.log import get_logger
 from app.domain.models import Resource
 from app.presentation.navigation import NavigationMediator
 from app.presentation.pages.base import BasePage
@@ -71,12 +72,16 @@ class ResourcesPage(BasePage):
         if not files:
             return
         paths = [Path(item) for item in files]
-        try:
-            payload = self.container.resources.upload(paths)
-            notify_info(self, payload.get("message") or "Файлы загружены")
-            self.on_enter({})
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        self.tasks.submit(
+            lambda: self.container.resources.upload(paths),
+            lambda payload: self._after_upload(payload),
+            lambda msg: notify_error(self, msg),
+            busy_text="Загрузка файлов…",
+        )
+
+    def _after_upload(self, payload: dict) -> None:
+        notify_info(self, payload.get("message") or "Файлы загружены")
+        self.on_enter({})
 
     def _bulk_delete(self) -> None:
         selected = [int(item) for item in self.table.selected_ids() if item is not None]
@@ -93,12 +98,16 @@ class ResourcesPage(BasePage):
             return
         if not confirm_delete(self, f"Удалить {len(unused)} выбранных ресурсов?"):
             return
-        try:
-            payload = self.container.resources.bulk_delete(unused)
-            notify_info(self, payload.get("message") or "Ресурсы удалены")
-            self.on_enter({})
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        self.tasks.submit(
+            lambda: self.container.resources.bulk_delete(unused),
+            lambda payload: self._after_bulk_delete(payload),
+            lambda msg: notify_error(self, msg),
+            busy_text="Удаление…",
+        )
+
+    def _after_bulk_delete(self, payload: dict) -> None:
+        notify_info(self, payload.get("message") or "Ресурсы удалены")
+        self.on_enter({})
 
     def _download(self) -> None:
         selected = {int(item) for item in self.table.selected_ids() if item is not None}
@@ -110,18 +119,27 @@ class ResourcesPage(BasePage):
         if not target_dir:
             return
         dest = Path(target_dir)
-        ok, failed = 0, 0
-        for item in items:
-            try:
-                data, _ = self.container.resources.download(item.resource_id)
-                (dest / item.file_name).write_bytes(data)
-                ok += 1
-            except Exception:  # noqa: BLE001
-                failed += 1
-        msg = f"Скачано: {ok}"
-        if failed:
-            msg += f", ошибок: {failed}"
-        notify_info(self, msg)
+
+        def work() -> tuple[int, int]:
+            ok, failed = 0, 0
+            for item in items:
+                try:
+                    data, _ = self.container.resources.download(item.resource_id)
+                    (dest / item.file_name).write_bytes(data)
+                    ok += 1
+                except Exception:  # noqa: BLE001
+                    get_logger(__name__).exception("Не удалось скачать ресурс #%s", item.resource_id)
+                    failed += 1
+            return ok, failed
+
+        def done(result: tuple[int, int]) -> None:
+            ok, failed = result
+            msg = f"Скачано: {ok}"
+            if failed:
+                msg += f", ошибок: {failed}"
+            notify_info(self, msg)
+
+        self.tasks.submit(work, done, lambda msg: notify_error(self, msg), busy_text="Скачивание…")
 
     def _export(self) -> None:
         items = self._visible()

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 
-from PyQt5.QtCore import QBuffer, QByteArray, QObject, QThread, Qt, pyqtSignal
+from PyQt5.QtCore import QBuffer, QByteArray, QObject, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
 from PyQt5.QtWidgets import (
+    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -18,27 +20,79 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from app.core.log import get_logger
 from app.domain.enums import MimeType
 from app.domain.models import Resource
 
 Fetcher = Callable[[int], tuple[bytes, str]]
 
 
-class _FetchWorker(QObject):
-    finished = pyqtSignal(bytes, str)
-    failed = pyqtSignal(str)
+class _ResourceComboBox(QComboBox):
+    """Поиск по списку: значение только из items, колесо не меняет выбор."""
 
-    def __init__(self, fetcher: Fetcher, resource_id: int) -> None:
-        super().__init__()
-        self._fetcher = fetcher
-        self.resource_id = resource_id
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._query: str | None = None
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)
+        self.setCompleter(None)
+        edit = self.lineEdit()
+        edit.setPlaceholderText("Поиск по имени файла...")
+        edit.textEdited.connect(self._on_text_edited)
 
-    def run(self) -> None:
-        try:
-            data, content_type = self._fetcher(self.resource_id)
-            self.finished.emit(data, content_type)
-        except Exception as exc:  # noqa: BLE001
-            self.failed.emit(str(exc))
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        if self.view().isVisible():
+            super().wheelEvent(event)
+            return
+        event.ignore()
+
+    def showPopup(self) -> None:  # type: ignore[override]
+        super().showPopup()
+        self._apply_filter()
+        if self._query is not None:
+            self._set_edit_text(self._query)
+
+    def hidePopup(self) -> None:  # type: ignore[override]
+        super().hidePopup()
+        self._query = None
+        self._apply_filter()
+        self._sync_edit()
+
+    def _on_text_edited(self, text: str) -> None:
+        self._query = text
+        if self.view().isVisible():
+            self._apply_filter()
+        else:
+            self.showPopup()
+        self._set_edit_text(text)
+
+    def _apply_filter(self) -> None:
+        query = (self._query or "").casefold()
+        view = self.view()
+        first = None
+        for row in range(self.count()):
+            hidden = bool(query) and query not in self.itemText(row).casefold()
+            view.setRowHidden(row, hidden)
+            if not hidden and first is None:
+                first = row
+        if first is not None:
+            view.setCurrentIndex(self.model().index(first, self.modelColumn()))
+
+    def _sync_edit(self) -> None:
+        index = self.currentIndex()
+        self._set_edit_text(self.itemText(index) if index >= 0 else "")
+
+    def _set_edit_text(self, text: str) -> None:
+        edit = self.lineEdit()
+        if edit.text() == text:
+            return
+        edit.setText(text)
+        edit.setCursorPosition(len(text))
+
+
+class _FetchSignals(QObject):
+    finished = pyqtSignal(int, int, bytes, str)
+    failed = pyqtSignal(int, int, str)
 
 
 class _ImagePreview(QLabel):
@@ -51,6 +105,7 @@ class _ImagePreview(QLabel):
         pm = QPixmap()
         pm.loadFromData(data)
         if pm.isNull():
+            get_logger(__name__).warning("Не удалось декодировать изображение")
             self.setText("Не удалось загрузить")
             return
         scaled = pm.scaled(
@@ -62,8 +117,10 @@ class _ImagePreview(QLabel):
 class _AudioPreview(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._player = QMediaPlayer(self)
+        self._data = b""
+        self._player: QMediaPlayer | None = None
         self._qbuf: QBuffer | None = None
+        self._qba: QByteArray | None = None
 
         self._play_btn = QToolButton()
         self._play_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
@@ -71,7 +128,7 @@ class _AudioPreview(QWidget):
 
         self._slider = QSlider(Qt.Horizontal)
         self._slider.setRange(0, 0)
-        self._slider.sliderMoved.connect(self._player.setPosition)
+        self._slider.sliderMoved.connect(self._seek)
 
         self._time = QLabel("0:00")
         self._time.setFixedWidth(44)
@@ -82,22 +139,39 @@ class _AudioPreview(QWidget):
         layout.addWidget(self._slider, 1)
         layout.addWidget(self._time)
 
-        self._player.positionChanged.connect(self._on_position)
-        self._player.durationChanged.connect(lambda d: self._slider.setRange(0, d))
-        self._player.stateChanged.connect(self._on_state)
-
     def set_data(self, data: bytes) -> None:
-        qba = QByteArray(data)
+        self.shutdown()
+        self._data = data
+
+    def _ensure_player(self) -> QMediaPlayer | None:
+        if not self._data:
+            return None
+        if self._player is not None:
+            return self._player
+        self._qba = QByteArray(self._data)
         self._qbuf = QBuffer(self)
-        self._qbuf.setData(qba)
+        self._qbuf.setData(self._qba)
         self._qbuf.open(QBuffer.ReadOnly)
-        self._player.setMedia(QMediaContent(), self._qbuf)
+        player = QMediaPlayer(self)
+        player.positionChanged.connect(self._on_position)
+        player.durationChanged.connect(lambda d: self._slider.setRange(0, d))
+        player.stateChanged.connect(self._on_state)
+        player.setMedia(QMediaContent(), self._qbuf)
+        self._player = player
+        return player
 
     def _toggle(self) -> None:
-        if self._player.state() == QMediaPlayer.PlayingState:
-            self._player.pause()
-        else:
-            self._player.play()
+        player = self._ensure_player()
+        if player is None:
+            return
+        if player.state() == QMediaPlayer.PlayingState:
+            player.pause()
+            return
+        player.play()
+
+    def _seek(self, position: int) -> None:
+        if self._player is not None:
+            self._player.setPosition(position)
 
     def _on_position(self, ms: int) -> None:
         self._slider.setValue(ms)
@@ -109,7 +183,24 @@ class _AudioPreview(QWidget):
         self._play_btn.setIcon(self.style().standardIcon(icon))
 
     def stop(self) -> None:
-        self._player.stop()
+        if self._player is not None:
+            self._player.stop()
+
+    def shutdown(self) -> None:
+        player = self._player
+        self._player = None
+        if player is None:
+            return
+        player.stop()
+        player.setMedia(QMediaContent())
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
+        player.deleteLater()
+        if self._qbuf is not None:
+            self._qbuf.close()
+            self._qbuf = None
+        self._qba = None
 
 
 class ResourcePicker(QWidget):
@@ -127,13 +218,13 @@ class ResourcePicker(QWidget):
         self._resources: list[Resource] = []
         self._mime: MimeType | None = None
         self._fetcher: Fetcher | None = self._default_fetcher
-        self._fetch_thread: QThread | None = None
-        self._loading_rid: int | None = None
+        self._generation = 0
+        self._closed = False
+        self._signals = _FetchSignals(self)
+        self._signals.finished.connect(self._on_fetched)
+        self._signals.failed.connect(self._on_fetch_error)
 
-        self._combo = QComboBox()
-        self._combo.setEditable(True)
-        self._combo.setInsertPolicy(QComboBox.NoInsert)
-        self._combo.lineEdit().setPlaceholderText("Поиск по имени файла...")
+        self._combo = _ResourceComboBox()
         self._combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._combo.currentIndexChanged.connect(self._on_changed)
 
@@ -155,6 +246,7 @@ class ResourcePicker(QWidget):
         current = self.value()
         self._resources = resources
         self._mime = mime
+        self._combo.hidePopup()
         self._combo.blockSignals(True)
         self._combo.clear()
         self._combo.addItem("— не выбран —", None)
@@ -176,52 +268,61 @@ class ResourcePicker(QWidget):
         data = self._combo.currentData()
         return int(data) if data is not None else None
 
+    def shutdown(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._generation += 1
+        signals = self._signals
+        try:
+            signals.finished.disconnect(self._on_fetched)
+            signals.failed.disconnect(self._on_fetch_error)
+        except TypeError:
+            pass
+        signals.setParent(None)
+        QTimer.singleShot(12_000, signals.deleteLater)
+        self._stop_audio()
+        self._clear_preview()
+
     def _on_changed(self) -> None:
         self.changed.emit(self.value())
         self._load_preview()
 
     def _load_preview(self) -> None:
+        if self._closed:
+            return
         self._stop_audio()
         self._clear_preview()
         rid = self.value()
         if rid is None or self._fetcher is None:
             self._preview_area.hide()
             return
-        if rid == self._loading_rid:
-            return
-        self._loading_rid = rid
+        self._generation += 1
+        generation = self._generation
         loading = QLabel("Загрузка…")
         loading.setAlignment(Qt.AlignCenter)
         self._preview_layout.addWidget(loading)
         self._preview_area.show()
-        self._fetch(rid)
+        self._fetch(rid, generation)
 
-    def _fetch(self, rid: int) -> None:
+    def _fetch(self, rid: int, generation: int) -> None:
         fetcher = self._fetcher
         if fetcher is None:
             return
-        thread = QThread(self)
-        worker = _FetchWorker(fetcher, rid)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.finished.connect(lambda data, ct, r=rid: self._on_fetched(data, ct, r))
-        worker.failed.connect(lambda msg, r=rid: self._on_fetch_error(msg, r))
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        thread.finished.connect(lambda: self._cleanup_thread(thread, worker))
-        self._fetch_thread = thread
-        thread.start()
 
-    def _cleanup_thread(self, thread: QThread, worker: _FetchWorker) -> None:
-        worker.deleteLater()
-        thread.deleteLater()
-        if self._fetch_thread is thread:
-            self._fetch_thread = None
+        def work() -> None:
+            try:
+                data, content_type = fetcher(rid)
+                self._signals.finished.emit(generation, rid, data, content_type)
+            except Exception as exc:  # noqa: BLE001
+                get_logger(__name__).exception("Не удалось загрузить ресурс #%s", rid)
+                self._signals.failed.emit(generation, rid, str(exc))
 
-    def _on_fetched(self, data: bytes, content_type: str, rid: int) -> None:
-        if self.value() != rid:
+        threading.Thread(target=work, daemon=True, name=f"resource-preview-{rid}").start()
+
+    def _on_fetched(self, generation: int, rid: int, data: bytes, content_type: str) -> None:
+        if self._closed or generation != self._generation or self.value() != rid:
             return
-        self._loading_rid = None
         self._clear_preview()
         mime = self._selected_mime() or content_type
         if "image" in mime:
@@ -241,6 +342,7 @@ class ResourcePicker(QWidget):
                 import json as _json
                 text = _json.dumps(_json.loads(data.decode("utf-8")), ensure_ascii=False, indent=2)
             except Exception:
+                get_logger(__name__).warning("Не удалось разобрать JSON ресурса", exc_info=True)
                 text = data.decode("utf-8", errors="replace")
             edit = QPlainTextEdit()
             edit.setReadOnly(True)
@@ -253,10 +355,9 @@ class ResourcePicker(QWidget):
             self._preview_layout.addWidget(lbl)
         self._preview_area.show()
 
-    def _on_fetch_error(self, msg: str, rid: int) -> None:
-        if self.value() != rid:
+    def _on_fetch_error(self, generation: int, rid: int, msg: str) -> None:
+        if self._closed or generation != self._generation or self.value() != rid:
             return
-        self._loading_rid = None
         self._clear_preview()
         lbl = QLabel(f"Ошибка: {msg}")
         lbl.setWordWrap(True)
@@ -276,11 +377,14 @@ class ResourcePicker(QWidget):
         for i in range(self._preview_layout.count()):
             widget = self._preview_layout.itemAt(i).widget()
             if isinstance(widget, _AudioPreview):
-                widget.stop()
+                widget.shutdown()
 
     def _clear_preview(self) -> None:
         while self._preview_layout.count():
             item = self._preview_layout.takeAt(0)
             widget = item.widget()
-            if widget:
-                widget.deleteLater()
+            if widget is None:
+                continue
+            if isinstance(widget, _AudioPreview):
+                widget.shutdown()
+            widget.deleteLater()

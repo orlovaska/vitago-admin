@@ -6,6 +6,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from run import ROOT, ensure_venv, python_bin
@@ -15,6 +16,26 @@ BUILD_REQUIREMENTS = ROOT / "requirements-build.txt"
 DIST_DIR = ROOT / "dist"
 EXE_NAME = "VitagoAdmin.exe"
 EXE_PATH = DIST_DIR / "VitagoAdmin" / EXE_NAME
+
+
+def stop_running_exe() -> None:
+    """Закрывает запущенный VitagoAdmin, иначе PyInstaller не сможет очистить dist/."""
+    if sys.platform != "win32":
+        return
+    probe = subprocess.run(
+        ["tasklist", "/FI", f"IMAGENAME eq {EXE_NAME}", "/NH"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if EXE_NAME.lower() not in (probe.stdout or "").lower():
+        return
+    print(f"Закрываю запущенный {EXE_NAME}...")
+    subprocess.run(
+        ["taskkill", "/F", "/IM", EXE_NAME],
+        capture_output=True,
+        check=False,
+    )
 
 
 def ensure_build_deps() -> None:
@@ -45,8 +66,18 @@ def pyinstaller_args(clean: bool) -> list[str]:
 
 
 def build_exe(clean: bool) -> Path:
+    stop_running_exe()
     print("Собираю exe...")
-    subprocess.check_call(pyinstaller_args(clean), cwd=ROOT)
+    try:
+        subprocess.check_call(pyinstaller_args(clean), cwd=ROOT)
+    except subprocess.CalledProcessError as exc:
+        dist_locked = (DIST_DIR / "VitagoAdmin").exists()
+        if dist_locked:
+            raise SystemExit(
+                "Сборка не удалась: папка dist\\VitagoAdmin занята "
+                f"(закройте {EXE_NAME} и повторите)."
+            ) from exc
+        raise
     if not EXE_PATH.exists():
         raise SystemExit(f"Сборка завершилась, но файл не найден: {EXE_PATH}")
     example = ROOT / ".env.example"

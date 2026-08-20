@@ -7,7 +7,14 @@ from typing import ClassVar
 
 from dotenv import load_dotenv
 
-from app.core.env_file import ENV_SCHEMA, ensure_env_file, env_path as default_env_path
+from app.core.env_file import (
+    ENV_SCHEMA,
+    HTTP_TIMEOUT_DEFAULT,
+    clamp_http_timeout,
+    ensure_env_file,
+    env_path as default_env_path,
+)
+from app.core.log import get_logger
 
 
 @dataclass(frozen=True)
@@ -38,14 +45,16 @@ class Settings:
 
         timeout_raw = os.getenv("API_TIMEOUT_SECONDS") or defaults["API_TIMEOUT_SECONDS"]
         try:
-            timeout = int(timeout_raw)
+            timeout = clamp_http_timeout(int(timeout_raw))
         except ValueError:
-            timeout = int(defaults["API_TIMEOUT_SECONDS"] or "30")
+            get_logger(__name__).warning("Некорректный API_TIMEOUT_SECONDS=%r, используется %s", timeout_raw, HTTP_TIMEOUT_DEFAULT)
+            timeout = HTTP_TIMEOUT_DEFAULT
 
         backup_raw = os.getenv("SERVER_DISK_BACKUP_DAYS") or defaults["SERVER_DISK_BACKUP_DAYS"]
         try:
             backup_days = max(0, int(backup_raw))
         except ValueError:
+            get_logger(__name__).warning("Некорректный SERVER_DISK_BACKUP_DAYS=%r, используется 0", backup_raw)
             backup_days = 0
 
         cls._instance = cls(

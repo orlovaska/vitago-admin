@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from PyQt5.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QSpinBox, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QComboBox, QDialogButtonBox, QFormLayout, QLineEdit, QSpinBox, QVBoxLayout, QWidget
 
 from app.core.container import Container
 from app.domain.enums import AppStore
 from app.domain.models import AppVersion
+from app.presentation.dialogs.job_dialog import JobDialog
 from app.presentation.widgets.common import notify_error
 
 
-class VersionDialog(QDialog):
+class VersionDialog(JobDialog):
     def __init__(
         self,
         container: Container,
@@ -63,15 +64,9 @@ class VersionDialog(QDialog):
         if latest and (major, minor, patch) <= latest.as_tuple():
             notify_error(self, f"Версия должна быть строго больше последней для этого стора: {latest.label}")
             return
-        try:
-            self._container.applications.create_version(
-                self._application_id,
-                major,
-                minor,
-                patch,
-                self.release_notes.text().strip() or None,
-                store,
-            )
-            self.accept()
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        notes = self.release_notes.text().strip() or None
+        app_id = self._application_id
+        self.run_job(
+            lambda: self._container.applications.create_version(app_id, major, minor, patch, notes, store),
+            lambda _: self.accept(),
+        )

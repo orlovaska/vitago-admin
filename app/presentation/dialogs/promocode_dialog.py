@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QDialog,
     QDialogButtonBox,
     QFormLayout,
     QLineEdit,
@@ -12,10 +11,11 @@ from PyQt5.QtWidgets import (
 )
 
 from app.core.container import Container
+from app.presentation.dialogs.job_dialog import JobDialog
 from app.presentation.widgets.common import notify_error
 
 
-class PromocodeDialog(QDialog):
+class PromocodeDialog(JobDialog):
     def __init__(self, container: Container, route_id: int, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._container = container
@@ -46,17 +46,12 @@ class PromocodeDialog(QDialog):
         if not self.code.text().strip():
             notify_error(self, "Укажите код промокода")
             return
-        try:
-            self._container.promocodes.create(
-                {
-                    "routeId": self._route_id,
-                    "code": self.code.text().strip(),
-                    "discountPercent": self.discount.value(),
-                    "showAfterPayment": self.show_after.isChecked(),
-                    "useCustomScheme": self.use_scheme.isChecked(),
-                    "isActive": self.is_active.isChecked(),
-                }
-            )
-            self.accept()
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+        payload = {
+            "routeId": self._route_id,
+            "code": self.code.text().strip(),
+            "discountPercent": self.discount.value(),
+            "showAfterPayment": self.show_after.isChecked(),
+            "useCustomScheme": self.use_scheme.isChecked(),
+            "isActive": self.is_active.isChecked(),
+        }
+        self.run_job(lambda: self._container.promocodes.create(payload), lambda _: self.accept())

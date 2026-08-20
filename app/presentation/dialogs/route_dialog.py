@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QScrollArea, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QDialogButtonBox, QScrollArea, QVBoxLayout, QWidget
 
 from app.core.container import Container
 from app.domain.models import Resource, RouteForm
+from app.presentation.dialogs.job_dialog import JobDialog
 from app.presentation.forms.route_form import RouteFormWidget
 from app.presentation.widgets.common import notify_error
 
 
-class RouteDialog(QDialog):
+class RouteDialog(JobDialog):
     def __init__(
         self,
         container: Container,
@@ -21,15 +22,11 @@ class RouteDialog(QDialog):
         self._container = container
         self._application_id = application_id
         self._route_id = route_id
+        self._loaded = False
         self.setWindowTitle("Редактировать маршрут" if route_id else "Добавить маршрут")
         self.resize(720, 760)
         self.form = RouteFormWidget()
         self.form.set_resources(resources)
-        if route_id:
-            try:
-                self.form.set_form(container.routes.get(route_id))
-            except Exception as exc:  # noqa: BLE001
-                notify_error(self, str(exc))
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.form)
@@ -40,17 +37,28 @@ class RouteDialog(QDialog):
         layout.addWidget(scroll)
         layout.addWidget(buttons)
 
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        if self._route_id and not self._loaded:
+            self._loaded = True
+            self.run_job(
+                lambda: self._container.routes.get(self._route_id),
+                self.form.set_form,
+                busy_text="Загрузка маршрута…",
+            )
+
     def _save(self) -> None:
         errors = self.form.errors()
         if errors:
             notify_error(self, "Заполните обязательные поля: " + ", ".join(errors))
             return
         form: RouteForm = self.form.to_form()
-        try:
-            if self._route_id:
-                self._container.routes.update(self._route_id, form)
+        route_id = self._route_id
+
+        def work() -> None:
+            if route_id:
+                self._container.routes.update(route_id, form)
             else:
                 self._container.routes.create(self._application_id, form)
-            self.accept()
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+
+        self.run_job(work, lambda _: self.accept())

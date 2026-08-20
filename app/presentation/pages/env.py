@@ -16,7 +16,16 @@ from PyQt5.QtWidgets import (
 )
 
 from app.core.container import Container
-from app.core.env_file import ENV_SCHEMA, env_path, read_env, spec_for
+from app.core.env_file import (
+    ENV_SCHEMA,
+    HTTP_TIMEOUT_DEFAULT,
+    HTTP_TIMEOUT_MAX,
+    HTTP_TIMEOUT_MIN,
+    clamp_http_timeout,
+    env_path,
+    read_env,
+    spec_for,
+)
 from app.presentation.navigation import NavigationMediator
 from app.presentation.pages.base import BasePage
 from app.presentation.widgets.common import (
@@ -148,12 +157,16 @@ class EnvPage(BasePage):
             if spec.default and not values.get(spec.key):
                 values[spec.key] = spec.default
                 warnings.append(f"{spec.label}: подставлено значение по умолчанию")
-        timeout = values.get("API_TIMEOUT_SECONDS", "30")
+        timeout = values.get("API_TIMEOUT_SECONDS", str(HTTP_TIMEOUT_DEFAULT))
         try:
-            int(timeout)
+            clamped = clamp_http_timeout(int(timeout))
         except ValueError:
-            values["API_TIMEOUT_SECONDS"] = "30"
-            warnings.append("Таймаут должен быть числом, подставлено 30")
+            values["API_TIMEOUT_SECONDS"] = str(HTTP_TIMEOUT_DEFAULT)
+            warnings.append(f"Таймаут должен быть числом, подставлено {HTTP_TIMEOUT_DEFAULT}")
+        else:
+            if str(clamped) != str(timeout).strip():
+                values["API_TIMEOUT_SECONDS"] = str(clamped)
+                warnings.append(f"Таймаут ограничен диапазоном {HTTP_TIMEOUT_MIN}–{HTTP_TIMEOUT_MAX} сек")
         backup_days = values.get("SERVER_DISK_BACKUP_DAYS", "0")
         try:
             if int(backup_days) < 0:

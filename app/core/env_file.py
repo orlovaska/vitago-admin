@@ -37,7 +37,8 @@ ENV_SCHEMA: tuple[EnvVarSpec, ...] = (
     EnvVarSpec(
         "API_TIMEOUT_SECONDS",
         "Таймаут HTTP-запросов (сек)",
-        default="30",
+        "Обычные запросы к API, 5–10 секунд",
+        default="8",
     ),
     EnvVarSpec(
         "SECRETS_SSH_HOST",
@@ -73,6 +74,15 @@ ENV_SCHEMA: tuple[EnvVarSpec, ...] = (
 )
 
 _SCHEMA_KEYS = {item.key: item for item in ENV_SCHEMA}
+
+HTTP_TIMEOUT_MIN = 5
+HTTP_TIMEOUT_MAX = 10
+HTTP_TIMEOUT_DEFAULT = 8
+HTTP_CONNECT_TIMEOUT = 5
+
+
+def clamp_http_timeout(value: int) -> int:
+    return max(HTTP_TIMEOUT_MIN, min(int(value), HTTP_TIMEOUT_MAX))
 
 
 def env_path() -> Path:

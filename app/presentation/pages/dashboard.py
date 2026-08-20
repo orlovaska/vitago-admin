@@ -71,11 +71,14 @@ class DashboardPage(ScrollPage):
         return card
 
     def _open_wizard(self) -> None:
-        try:
-            resources = self.container.resources.list_all()
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
-            return
+        self.tasks.submit(
+            self.container.resources.list_all,
+            self._start_wizard,
+            self._fail,
+            busy_text="Загрузка ресурсов…",
+        )
+
+    def _start_wizard(self, resources: list) -> None:
         dialog = CloneWizardDialog(self.container, resources, self)
         if dialog.exec_():
             self.on_enter({})

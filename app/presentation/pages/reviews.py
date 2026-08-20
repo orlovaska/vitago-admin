@@ -110,13 +110,14 @@ class ReviewsPage(BasePage):
             self, "Отклонение", "Отклонить этот отзыв?", ok_text="Отклонить", cancel_text="Отмена"
         ):
             return
-        try:
+        def work() -> None:
             if action == "approve":
                 self.container.reviews.approve(user_id, route_id)
-                notify_info(self, "Отзыв подтвержден")
             else:
                 self.container.reviews.reject(user_id, route_id)
-                notify_info(self, "Отзыв отклонен")
+
+        def ok(_result) -> None:
+            notify_info(self, "Отзыв подтвержден" if action == "approve" else "Отзыв отклонен")
             self.on_enter({})
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+
+        self.tasks.submit(work, ok, lambda msg: notify_error(self, msg), busy_text="Сохранение…")

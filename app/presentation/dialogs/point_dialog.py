@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QScrollArea, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QDialogButtonBox, QScrollArea, QVBoxLayout, QWidget
 
 from app.core.container import Container
 from app.domain.models import Point, Resource
+from app.presentation.dialogs.job_dialog import JobDialog
 from app.presentation.forms.point_form import PointFormWidget
 from app.presentation.widgets.common import notify_error
 
 
-class PointDialog(QDialog):
+class PointDialog(JobDialog):
     def __init__(
         self,
         container: Container,
@@ -46,11 +47,12 @@ class PointDialog(QDialog):
             point_id=self._point.id if self._point else None,
             route_id=self._route_id,
         )
-        try:
-            if self._point and self._point.id:
-                self._container.points.update(self._point.id, point)
+        point_id = self._point.id if self._point else None
+
+        def work() -> None:
+            if point_id:
+                self._container.points.update(point_id, point)
             else:
                 self._container.points.create(self._route_id, point)
-            self.accept()
-        except Exception as exc:  # noqa: BLE001
-            notify_error(self, str(exc))
+
+        self.run_job(work, lambda _: self.accept())
